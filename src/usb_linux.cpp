@@ -20,7 +20,9 @@ namespace ewr {
 
         libusb_device** devs;
         ssize_t cnt = libusb_get_device_list(nullptr, &devs);
-        if (cnt < 0) return nullptr;
+
+        if (cnt < 0)
+            return nullptr;
 
         libusb_device_handle* handle = nullptr;
 
@@ -46,8 +48,10 @@ namespace ewr {
                     for (int e = 0; e < interdesc->bNumEndpoints; e++)
                     {
                         const libusb_endpoint_descriptor* epdesc = &interdesc->endpoint[e];
-                        if (epdesc->bEndpointAddress & LIBUSB_ENDPOINT_IN) EP_IN = epdesc->bEndpointAddress;
-                        else EP_OUT = epdesc->bEndpointAddress;
+                        if (epdesc->bEndpointAddress & LIBUSB_ENDPOINT_IN)
+                            EP_IN = epdesc->bEndpointAddress;
+                        else
+                            EP_OUT = epdesc->bEndpointAddress;
                     }
                     libusb_free_config_descriptor(config);
 
@@ -93,45 +97,48 @@ namespace ewr {
         libusb_exit(nullptr);
     }
 
-    bool ExecutePayloadSequence(EwrDeviceHandle hPrinter, const std::vector<std::vector<unsigned char>>& sequence) {
+    bool ExecutePayloadSequence(EwrDeviceHandle hPrinter, const std::vector<std::vector<unsigned char>>& sequence)
+    {
         std::cout << "\nExecuting universal Linux hardware state machine..." << std::endl;
         libusb_device_handle* handle = static_cast<libusb_device_handle*>(hPrinter);
 
         int actual_length;
         unsigned char readBuffer[256];
 
-        for (size_t i = 0; i < sequence.size(); ++i) {
+        for (size_t i = 0; i < sequence.size(); ++i) 
+        {
 
             int write_status = libusb_bulk_transfer(handle, EP_OUT, (unsigned char*)sequence[i].data(), sequence[i].size(), &actual_length, 2000);
 
-            if (write_status != 0) {
+            if (write_status != 0)
+            {
                 std::cerr << "Failed to send packet " << i + 1 << " (libusb error: " << write_status << ")" << std::endl;
                 return false;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             int totalBytesReturned = 0;
-            while (true) {
+            while (true)
+            {
                 int read_status = libusb_bulk_transfer(handle, EP_IN, readBuffer, sizeof(readBuffer), &actual_length, 50);
 
-                if (read_status == LIBUSB_ERROR_TIMEOUT || actual_length == 0) {
+                if (read_status == LIBUSB_ERROR_TIMEOUT || actual_length == 0)
                     break;
-                }
 
-                if (read_status == 0) {
+                if (read_status == 0)
                     totalBytesReturned += actual_length;
-                }
-                else {
+                else
                     break;
-                }
             }
 
-            if (totalBytesReturned > 0) {
+            if (totalBytesReturned > 0)
+            {
                 std::cout << "-> Packet " << i + 1 << " / " << sequence.size()
                     << " | Triggered ACK: Cleared " << totalBytesReturned << " bytes." << std::endl;
             }
-            else {
+            else
+            {
                 std::cout << "-> Packet " << i + 1 << " / " << sequence.size()
                     << " | Sent. (No ACK)" << std::endl;
             }
