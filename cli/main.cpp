@@ -1,7 +1,17 @@
 #include <iostream>
+#include <algorithm>
 #include "ewr/payload.h"
 #include "ewr/parser.h"
 #include "ewr/usb.h"
+#include "ewr/generator.h"
+
+struct MenuOption
+{
+    std::string displayName;
+    bool isReplay;
+    ewr::PrinterModel replayModel;
+    ewr::DbPrinterModel smartModel;
+};
 
 int main()
 {
@@ -9,18 +19,46 @@ int main()
     std::cout << "       EWR - Epson Waste Reset          " << std::endl;
     std::cout << "========================================\n" << std::endl;
 
-    auto models = ewr::ScanModelsFolder("models");
+    ewr::UniversalGenerator generator;
 
-    if (models.empty())
+    std::cout << "[i] Checking for OTA database updates... ";
+
+    if (generator.SyncDatabaseOTA())
+        std::cout << "SUCCESS." << std::endl;
+    else
+        std::cout << "OFFLINE (Using local cache)." << std::endl;
+
+    generator.LoadDatabase("database.json");
+    auto replayModels = ewr::ScanModelsFolder("models");
+    auto smartModels = generator.GetAvailableModels();
+
+    if (replayModels.empty() && smartModels.empty())
     {
-        std::cout << "No payloads found. \nAction Required: Create a 'models' folder next to this .exe and drop your Wireshark dump (.txt or .c) inside it." << std::endl;
+        std::cerr << "\n[!] No payloads found. You need internet access on first run, or a 'models' folder with payload dumps." << std::endl;
         std::cin.get();
         return 1;
     }
 
+    std::cout << "[i] Loaded " << smartModels.size() << " Smart Protocol payloads." << std::endl;
+    std::cout << "[i] Loaded " << replayModels.size() << " Custom payloads.\n" << std::endl;
+
+    std::vector<MenuOption> options;
+
+    for (const auto& sm : smartModels)
+        options.push_back({ sm.name + " (Smart Protocol)", false, {}, sm });
+
+    for (const auto& lm : replayModels)
+        options.push_back({ lm.name + " (Replay)", true, lm, {} });
+
+    std::sort(options.begin(), options.end(), [](const MenuOption& a, const MenuOption& b)
+        {
+            return a.displayName < b.displayName;
+        });
+
     std::cout << "Available Printer Payloads:\n";
-    for (size_t i = 0; i < models.size(); ++i)
-        std::cout << "[" << i + 1 << "] " << models[i].name << "\n";
+
+    for (size_t i = 0; i < options.size(); ++i)
+        std::cout << "[" << i + 1 << "] " << options[i].displayName << "\n";
 
     int choice;
     std::cout << "\nSelect your printer: ";
@@ -29,26 +67,33 @@ int main()
     std::cin.clear();
     std::cin.ignore(256, '\n');
 
-    if (choice < 1 || choice > models.size())
+    if (choice < 1 || choice > static_cast<int>(options.size()))
     {
         std::cout << "Invalid selection. Exiting.\n";
         std::cin.get();
         return 1;
     }
 
-    ewr::PrinterModel selectedModel = models[choice - 1];
-    std::cout << "\nParsing Wireshark dump for " << selectedModel.name << "..." << std::endl;
+    MenuOption selected = options[choice - 1];
+    std::vector<std::vector<unsigned char>> executionSequence;
 
-    std::vector<std::vector<unsigned char>> executionSequence = ewr::ParseWiresharkDump(selectedModel.filepath);
+    if (selected.isReplay)
+    {
+        std::cout << "\n[!] Parsing replay Wireshark dump..." << std::endl;
+        executionSequence = ewr::ParseWiresharkDump(selected.replayModel.filepath);
+    }
+    else
+    {
+        std::cout << "\n[*] Generating safe Smart Protocol R/W sequence..." << std::endl;
+        executionSequence = generator.GenerateSequence(selected.smartModel);
+    }
 
     if (executionSequence.empty())
     {
-        std::cout << "Failed to parse payloads. Exiting.\n";
+        std::cerr << "Failed to construct payload. Exiting.\n";
         std::cin.get();
         return 1;
     }
-
-    std::cout << "Successfully loaded " << executionSequence.size() << " raw operational packets." << std::endl;
 
     std::cout << "\nScanning USB ports for Epson device..." << std::endl;
     ewr::EwrDeviceHandle hPrinter = ewr::AutoConnectEpsonPrinter();
@@ -68,7 +113,6 @@ int main()
     }
 
     ewr::DisconnectPrinter(hPrinter);
-
     std::cin.get();
     return 0;
 }

@@ -70,9 +70,8 @@ namespace ewr {
         }
         SetupDiDestroyDeviceInfoList(hDevInfo);
 
-        if (hPrinter == INVALID_HANDLE_VALUE) {
+        if (hPrinter == INVALID_HANDLE_VALUE)
             return nullptr;
-        }
 
         return hPrinter;
     }
@@ -134,26 +133,31 @@ namespace ewr {
         return totalRead;
     }
 
-    bool ExecutePayloadSequence(EwrDeviceHandle hPrinter, const std::vector<std::vector<unsigned char>>& sequence) {
+    bool ExecutePayloadSequence(EwrDeviceHandle hPrinter, const std::vector<std::vector<unsigned char>>& sequence)
+    {
         std::cout << "\nExecuting universal hardware state machine..." << std::endl;
         HANDLE winHandle = static_cast<HANDLE>(hPrinter);
 
-        for (size_t i = 0; i < sequence.size(); ++i) {
+        for (size_t i = 0; i < sequence.size(); ++i)
+        {
 
-            if (!AsyncWrite(winHandle, sequence[i])) {
+            if (!AsyncWrite(winHandle, sequence[i]))
+            {
                 std::cerr << "Failed to send packet " << i + 1 << std::endl;
                 return false;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             DWORD bytesReturned = AsyncDrainBuffer(winHandle);
 
-            if (bytesReturned > 0) {
+            if (bytesReturned > 0)
+            {
                 std::cout << "-> Packet " << i + 1 << " / " << sequence.size()
                     << " | Triggered ACK: Cleared " << bytesReturned << " bytes." << std::endl;
             }
-            else {
+            else
+            {
                 std::cout << "-> Packet " << i + 1 << " / " << sequence.size()
                     << " | Sent. (No ACK)" << std::endl;
             }
