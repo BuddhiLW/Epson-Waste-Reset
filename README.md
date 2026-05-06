@@ -5,32 +5,33 @@
 
 A free, cross-platform, and completely open-source C++ utility to reset the "Waste Ink Pad" counter on Epson printers. 
 
-EWR bypasses the need to pay for sketchy third-party reset keys (like WIC Reset) or run malicious, virus-flagged `AdjProg.exe` binaries. By utilizing raw hardware state-machine replaying, EWR communicates directly with the printer's motherboard over USB to safely zero out the EEPROM waste counters.
+EWR bypasses the need to pay for sketchy third-party reset keys (like WIC Reset) or run malicious, virus-flagged `AdjProg.exe` binaries. By dynamically generating IEEE 1284.4 hardware packets and utilizing a continuously updated database, EWR communicates directly with the printer's motherboard over USB to safely zero out the EEPROM waste counters.
 
 ## Features
+* **Smart Protocol Engine:** Constructs exact EEPROM write packets (`|B`) on the fly based on specific printer models. It safely manages the IEEE 1284.4 (D4) hardware credit system to prevent buffer overflows and lockups.
+* **OTA Database Sync:** Automatically fetches a massive, continuously updated database of printer offsets and keys on startup using native OS APIs (Zero bloat).
 * **Cross-Platform Core:**
   * **Windows:** Uses 100% native Win32 `SetupAPI` and robust Asynchronous `OVERLAPPED` I/O to safely drain the Windows Print Spooler buffers. Zero custom drivers required.
   * **Linux:** Uses `libusb` to automatically detach the kernel driver (CUPS) for exclusive, raw hardware access.
-* **Smart Payload Parser:** EWR builds its executable payloads dynamically from raw Wireshark dumps. It automatically detects and strips `USBPcap` kernel metadata headers, meaning contributors never have to manually edit hex arrays.
 * **Zero Hardcoded PIDs:** Automatically scans your OS USB tree to find connected Epson printers.
+* **Replay Fallback:** If your printer is brand new and not in the database yet, EWR can still dynamically parse and execute raw Wireshark dumps (stripping USBPcap headers automatically).
 
-### Prerequisites
+### Prerequisites (For Building from Source)
 * **Windows:** Visual Studio with MSVC C++ build tools.
-* **Linux (Arch/Debian):** `cmake`, `gcc`, `pkgconf`, and `libusb-1.0-dev`.
+* **Linux (Arch/Debian):** `cmake`, `gcc`, `pkgconf`, `libusb-1.0-dev`, and `libcurl4-openssl-dev`.
 
 ## Usage
 
-1. Ensure your Epson printer is turned on and connected via USB.
-2. Check the `models/` folder to see if your printer model (e.g., `L222.txt`) is already supported.
-3. Run the executable:
+1. Ensure your Epson printer is turned on and connected to your computer via USB.
+2. Run the executable:
    * **Windows:** Double-click `ewr.exe`
    * **Linux:** `sudo ./ewr` *(Raw USB access requires root)*
+3. **Note:** On the very first run, EWR requires an internet connection to download the latest printer database. Afterward, it works entirely offline.
 4. Type the number corresponding to your printer and hit Enter.
 5. Wait for the `SUCCESS` message, then **turn your printer off and back on using its physical power button** to commit the EEPROM changes to the motherboard.
 
 ## Building from Source
 
-### Build Instructions
 Open your terminal in the root of the repository and run:
 
 ```bash
@@ -42,9 +43,9 @@ cmake --build build --config Release
 ```
 The compiled executable `(ewr.exe or ewr)` will be located in the `Release` directory.
 
-## 🤝 Contributing a New Printer Model
+## 🤝 Contributing a New Printer Model (Replay Fallback)
 
-If your printer isn't in the `models/` folder yet, you can add support for it without writing a single line of code!
+If your printer isn't in the database yet, you can still add support for it using our Replay method without writing a single line of code!
 
 ### Step 1: Capture the Hardware Conversation
 1. Install [Wireshark](https://www.wireshark.org/) (Ensure **USBPcap** is installed on Windows) on your VM
@@ -64,10 +65,13 @@ If your printer isn't in the `models/` folder yet, you can add support for it wi
 
 ### Step 3: Test and Open a Pull Request
 1. Drop your new `L3150.c` file into your local EWR `models/` folder.
-2. Run EWR. The Smart Parser will automatically strip the Wireshark metadata and execute the payload.
+2. Run EWR. The parser will automatically strip the Wireshark metadata and execute the payload.
 3. If your waste counter successfully resets, open a Pull Request and upload your `.c` file to the repository so the rest of the world can use it!
 
 Video Guide: https://youtu.be/PQzxifFqMsA
+
+## Credits
+Special thanks to the [reinkpy](https://codeberg.org/atufi/reinkpy) project for their fantastic database. EWR uses an automated GitHub Actions pipeline to sync and convert their TOML database into our C++ backend, merging their massive printer support with our standalone C++ execution environment.
 
 ## ⚠️ Disclaimer
 Manipulating hardware via raw USB packets carries inherent risks. EWR is provided "as is" without warranty of any kind. By using this software, you accept full responsibility for your hardware.
