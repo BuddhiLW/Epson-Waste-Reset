@@ -95,25 +95,40 @@ namespace ewr {
             }
         }
 
-        const GUID SCAN_GUIDS[] = {
-            // GUID_DEVINTERFACE_USBPRINT (Standard USB Printer class)
-            { 0x28d78fad, 0x5a12, 0x11d1, { 0xae, 0x5b, 0x00, 0x00, 0xf8, 0x03, 0xa8, 0xc2 } },
-            // GUID_DEVINTERFACE_IMAGE (Standard USB Scanner/Image class)
-            { 0x6bdd1fc6, 0x810f, 0x11d0, { 0xbe, 0xc7, 0x08, 0x00, 0x2b, 0xe2, 0x09, 0x2f } },
-            // GUID_DEVINTERFACE_USB_DEVICE (Generic USB device class)
-            { 0xa5cd7fef, 0x35b7, 0x11d0, { 0xb4, 0x20, 0x00, 0xc0, 0x4f, 0x79, 0xaa, 0xf1 } },
-            // GUID_DEVINTERFACE_WINUSB (Standard WinUSB class)
-            { 0xdee0c8d9, 0xba4e, 0x46c5, { 0x9a, 0x2a, 0x7d, 0x35, 0x9e, 0x80, 0xb4, 0xeb } }
+        struct GuidEntry
+        {
+            GUID guid;
+            const char* name;
+            int classPriority; // Lower number = higher priority for printer maintenance
         };
 
-        std::vector<std::string> epsonPaths;
+        const GuidEntry SCAN_GUIDS[] = {
+            // GUID_DEVINTERFACE_USBPRINT (Standard USB Printer class)
+            { { 0x28d78fad, 0x5a12, 0x11d1, { 0xae, 0x5b, 0x00, 0x00, 0xf8, 0x03, 0xa8, 0xc2 } }, "USBPRINT", 0 },
+            // GUID_DEVINTERFACE_IMAGE (Standard USB Scanner/Image class)
+            { { 0x6bdd1fc6, 0x810f, 0x11d0, { 0xbe, 0xc7, 0x08, 0x00, 0x2b, 0xe2, 0x09, 0x2f } }, "IMAGE", 10 },
+            // GUID_DEVINTERFACE_USB_DEVICE (Generic USB device class)
+            { { 0xa5cd7fef, 0x35b7, 0x11d0, { 0xb4, 0x20, 0x00, 0xc0, 0x4f, 0x79, 0xaa, 0xf1 } }, "USB_DEVICE", 20 },
+            // GUID_DEVINTERFACE_WINUSB (Standard WinUSB class)
+            { { 0xdee0c8d9, 0xba4e, 0x46c5, { 0x9a, 0x2a, 0x7d, 0x35, 0x9e, 0x80, 0xb4, 0xeb } }, "WINUSB", 30 }
+        };
+
+        struct DeviceCandidate
+        {
+            std::string path;
+            std::string className;
+            int classPriority;
+            int interfaceIndex;
+        };
+
+        std::vector<DeviceCandidate> candidates;
         size_t totalDevices = 0;
 
         LogToTrace("[i] Scanning for Epson USB interfaces across multiple GUID classes...");
 
-        for (const auto& guid : SCAN_GUIDS)
+        for (const auto& entry : SCAN_GUIDS)
         {
-            HDEVINFO hDevInfo = SetupDiGetClassDevs(&guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+            HDEVINFO hDevInfo = SetupDiGetClassDevs(&entry.guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
 
             if (hDevInfo == INVALID_HANDLE_VALUE)
                 continue;
@@ -123,13 +138,13 @@ namespace ewr {
 
             char guidStr[64];
             snprintf(guidStr, sizeof(guidStr), "{%08lX-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}", 
-                     guid.Data1, guid.Data2, guid.Data3, 
-                     guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
-                     guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+                     entry.guid.Data1, entry.guid.Data2, entry.guid.Data3, 
+                     entry.guid.Data4[0], entry.guid.Data4[1], entry.guid.Data4[2], entry.guid.Data4[3],
+                     entry.guid.Data4[4], entry.guid.Data4[5], entry.guid.Data4[6], entry.guid.Data4[7]);
 
-            LogToTrace("  [i] Enrolling class: " + std::string(guidStr));
+            LogToTrace("  [i] Enrolling class: " + std::string(guidStr) + " (" + entry.name + ")");
 
-            for (DWORD i = 0; SetupDiEnumDeviceInterfaces(hDevInfo, NULL, &guid, i, &devInterfaceData); ++i)
+            for (DWORD i = 0; SetupDiEnumDeviceInterfaces(hDevInfo, NULL, &entry.guid, i, &devInterfaceData); ++i)
             {
                 totalDevices++;
                 DWORD requiredSize = 0;
@@ -147,9 +162,36 @@ namespace ewr {
 
                     if (devicePathLower.find("vid_04b8") != std::string::npos)
                     {
-                        LogToTrace("     -> Matches Epson Vendor ID (vid_04b8): " + devicePath);
-                        if (std::find(epsonPaths.begin(), epsonPaths.end(), devicePath) == epsonPaths.end()) 
-                            epsonPaths.push_back(devicePath);
+                        LogToTrace("     -> Matches Epson Vendor ID (vid_04b8): " + devicePath + " [class: " + entry.name + "]");
+
+                        bool alreadyKnown = false;
+                        for (const auto& c : candidates)
+                        {
+                            if (c.path == devicePath)
+                            {
+                                alreadyKnown = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadyKnown)
+                        {
+                            int ifaceIdx = -1;
+                            size_t miPos = devicePathLower.find("mi_");
+                            if (miPos != std::string::npos && miPos + 5 <= devicePathLower.length())
+                            {
+                                try 
+                                {
+                                    ifaceIdx = std::stoi(devicePathLower.substr(miPos + 3, 2));
+                                }
+                                catch (...)
+                                { 
+                                    ifaceIdx = -1;
+                                }
+                            }
+
+                            candidates.push_back({ devicePath, entry.name, entry.classPriority, ifaceIdx });
+                        }
                     }
                 }
                 else
@@ -161,45 +203,47 @@ namespace ewr {
             SetupDiDestroyDeviceInfoList(hDevInfo);
         }
 
-        LogToTrace("[i] Total unique Epson (VID_04B8) device paths matched: " + std::to_string(epsonPaths.size()));
+        LogToTrace("[i] Total unique Epson (VID_04B8) candidates discovered: " + std::to_string(candidates.size()));
+
+        for (const auto& c : candidates)
+            LogToTrace("     [" + c.className + " | mi_" + (c.interfaceIndex >= 0 ? std::to_string(c.interfaceIndex) : "N/A") + "] " + c.path);
+
+        // CLASS-AWARE INTERFACE SELECTION
+        //
+        // Priority order (highest to lowest):
+        //   1. USBPRINT class + mi_00  (ideal: printer engine on primary interface)
+        //   2. USBPRINT class + any mi (printer engine on secondary interface, e.g. L3250)
+        //   3. USBPRINT class + non-composite (single-function printer)
+        //   4. Non-USBPRINT class + mi_00 (last resort: might be scanner - logs a warning)
+        //   5. First detected path (absolute fallback)
 
         std::string selectedPath;
         std::string selectionReason;
 
-        if (!epsonPaths.empty())
+        if (!candidates.empty())
         {
-            for (const auto& path : epsonPaths)
-            {
-                std::string pathLower = path;
-                std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
-
-                if (pathLower.find("mi_00") != std::string::npos)
+            std::sort(candidates.begin(), candidates.end(), [](const DeviceCandidate& a, const DeviceCandidate& b)
                 {
-                    selectedPath = path;
-                    selectionReason = "Prioritized multi-function primary printer interface (mi_00)";
-                    break;
-                }
-            }
+                    if (a.classPriority != b.classPriority)
+                        return a.classPriority < b.classPriority;
 
-            if (selectedPath.empty())
-            {
-                for (const auto& path : epsonPaths)
-                {
-                    std::string pathLower = path;
-                    std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
-                    if (pathLower.find("&mi_") == std::string::npos)
-                    {
-                        selectedPath = path;
-                        selectionReason = "Selected standard non-composite USB printer path (no 'mi_' in path)";
-                        break;
-                    }
-                }
-            }
+                    int aIdx = (a.interfaceIndex >= 0) ? a.interfaceIndex : 9999;
+                    int bIdx = (b.interfaceIndex >= 0) ? b.interfaceIndex : 9999;
+                    return aIdx < bIdx;
+                });
 
-            if (selectedPath.empty())
+            selectedPath = candidates[0].path;
+            selectionReason = "Selected via class-priority sort: " + candidates[0].className + " class";
+            if (candidates[0].interfaceIndex >= 0)
+                selectionReason += ", interface mi_0" + std::to_string(candidates[0].interfaceIndex);
+            else
+                selectionReason += ", non-composite device";
+
+            if (candidates[0].classPriority > 0)
             {
-                selectedPath = epsonPaths[0];
-                selectionReason = "Fallback to first detected Epson device path (none matched mi_00 or non-composite criteria)";
+                LogToTrace("[WARNING] No USBPRINT class interface found. Using " + candidates[0].className + " class as fallback.");
+                LogToTrace("          This may target the scanner instead of the printer maintenance engine.");
+                LogToTrace("          Consider reinstalling official Epson printer drivers.");
             }
         }
         else
