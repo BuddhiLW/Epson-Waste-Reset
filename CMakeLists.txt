@@ -35,16 +35,21 @@ add_executable(ewr cli/main.cpp)
 target_link_libraries(ewr PRIVATE ewr_core)
 set_target_properties(ewr PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# ── Tests: golden-byte safety net (P0) ───────────────────────────────────────
-# ewr_core is a STATIC lib, so the test pulls only the object files it references
-# (generator.o + parser.o). generator.o references the OTA download symbols, so
-# the test links the same platform HTTP lib; USB objects are not referenced.
+# ── Tests: golden-byte + property-based (P0/P1) ──────────────────────────────
+# ewr_core is a STATIC lib, so a test pulls only the object files it references
+# (parser/generator/protocol). generator.o references the OTA download symbols,
+# so tests link the same platform HTTP lib; USB objects are not referenced.
 enable_testing()
-add_executable(golden_test tests/golden_test.cpp)
-target_link_libraries(golden_test PRIVATE ewr_core)
-if(WIN32)
-    target_link_libraries(golden_test PRIVATE urlmon)
-else()
-    target_link_libraries(golden_test PRIVATE ${LIBUSB_LIBRARIES} ${LIBCURL_LIBRARIES})
-endif()
-add_test(NAME golden_test COMMAND golden_test)
+function(ewr_add_test name)
+    add_executable(${name} tests/${name}.cpp)
+    target_link_libraries(${name} PRIVATE ewr_core)
+    if(WIN32)
+        target_link_libraries(${name} PRIVATE urlmon)
+    else()
+        target_link_libraries(${name} PRIVATE ${LIBUSB_LIBRARIES} ${LIBCURL_LIBRARIES})
+    endif()
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+ewr_add_test(golden_test)
+ewr_add_test(property_test)
