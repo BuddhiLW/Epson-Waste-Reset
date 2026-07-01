@@ -10,9 +10,13 @@ one lever all four frameworks agree on.
 |---|---|---|
 | **P0** | Golden-byte safety net | ✅ done |
 | **P1** | Extract pure protocol core + value objects | ✅ core done (`DbPrinterModel`→`PrinterProfile` rename deferred) |
-| **P2** | `Result<T,Error>` seam, honest errors, filter empty-address models from the menu | ⬜ todo |
+| **P2** | `Result<T,Error>` seam, honest errors, filter empty-address models from the menu | ✅ done |
 | **P3** | `ITransport` + owned device, one shared executor, the real success fix | ✅ done |
-| **P-side** | OTA download hardening (atomic temp-rename, `fclose(NULL)` UB) | ⬜ todo |
+| **P-side** | OTA download hardening (atomic temp-rename + JSON content gate, `fclose(NULL)` UB) | ✅ done |
+| **P4** | `IResetProtocol` vendor seam — Epson as one concrete impl (LSP/DIP/OCP) | ✅ done — see [ADR 0001](adr/0001-multi-vendor-reset-protocol.md) |
+| **P5** | (reframed) OCP validation via a second `IResetProtocol` | ✅ covered by the `StubProtocol` executor test; a `ReplayProtocol` was rejected (would weaken Epson-dump ACK gating — see ADR 0001) |
+| **P6** | Vendor-neutral device discovery + registry | ⬜ deferred (YAGNI for one vendor; per-platform discovery needs a Windows build) |
+| **P7** | Generalize the reset-DB schema behind a vendor discriminator | ⬜ deferred (data-dependent) |
 
 ## Hardware-safety invariants (must survive every refactor)
 
