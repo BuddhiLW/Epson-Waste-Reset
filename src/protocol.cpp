@@ -2,8 +2,10 @@
 #include "ewr/proto.h"
 #include "ewr/generator.h" // full definition of DbPrinterModel
 
+#include <algorithm>
 #include <regex>
 #include <string>
+#include <utility>
 
 namespace ewr::protocol {
 
@@ -64,24 +66,23 @@ namespace ewr::protocol {
 
             seq.emplace_back(proto::D4_CREDIT_GRANT.begin(), proto::D4_CREDIT_GRANT.end());
             seq.emplace_back(proto::D4_CREDIT_REQUEST.begin(), proto::D4_CREDIT_REQUEST.end());
-            seq.push_back(BuildWritePacket(
+
+            D4Packet write = BuildWritePacket(
                 static_cast<ResetKey>(model.rkey),
                 EepromWrite{static_cast<EepromAddress>(model.addresses[i]), value},
-                model.wkey));
+                model.wkey);
+            seq.push_back(std::move(write));
         }
         return seq;
     }
 
     static bool containsSubseq(const D4Packet& hay, const unsigned char* needle, size_t n)
     {
+        // i + n <= hay.size() keeps [i, i+n) in bounds, so std::equal never reads
+        // past the buffer even for the last candidate offset.
         for (size_t i = 0; i + n <= hay.size(); ++i)
-        {
-            bool match = true;
-            for (size_t j = 0; j < n; ++j)
-                if (hay[i + j] != needle[j]) { match = false; break; }
-            if (match)
+            if (std::equal(needle, needle + n, hay.begin() + i))
                 return true;
-        }
         return false;
     }
 
@@ -123,7 +124,10 @@ namespace ewr::protocol {
             D4Packet pkt;
 
             for (auto b = std::sregex_iterator(arrayContent.begin(), arrayContent.end(), byteRegex); b != array_end; ++b)
-                pkt.push_back(static_cast<unsigned char>(std::stoul(b->str(), nullptr, 16)));
+            {
+                unsigned char byte = static_cast<unsigned char>(std::stoul(b->str(), nullptr, 16));
+                pkt.push_back(byte);
+            }
 
             if (pkt.size() >= 27 && pkt[0] == 0x1B && pkt[1] == 0x00)
                 pkt.erase(pkt.begin(), pkt.begin() + 27);

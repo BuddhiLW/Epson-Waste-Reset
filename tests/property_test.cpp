@@ -234,6 +234,65 @@ int main()
     }
     if (g_fail == 0) std::cout << "  PASS  ack classification + token parsing held\n";
 
+    // ── Mutation-hardening cases (see scripts/mull.sh) ───────────────────────
+    // The randomized loops above never build a packet >=256 bytes, never place an
+    // ACK token past byte ~35, and never feed an under-length write frame — so a
+    // few high-value mutants in the byte core slipped through. These deterministic
+    // cases close those specific gaps.
+
+    std::cout << "\n== Mutation: BE length high byte on a >=256-byte packet ==\n";
+    {
+        g_case = "be16-highbyte";
+        // Every packet in the randomized suite is <256 bytes, so the big-endian
+        // HIGH length byte is always 0x00 and pushBe16's shift direction is
+        // unobservable (x>>8 and x<<8 both yield 0 for x<256). A long write key
+        // pushes the total past 255 and forces a non-zero high byte, pinning the
+        // shift. Kills protocol.cpp cxx_rshift_to_lshift at pushBe16.
+        std::string bigWkey(300, 'k');
+        auto p = protocol::BuildWritePacket(static_cast<ResetKey>(0x1234),
+                                            EepromWrite{static_cast<EepromAddress>(0x2A2A), 0x5A}, bigWkey);
+        checkWritePacket(p, 0x1234, 0x2A2A, 0x5A, bigWkey); // asserts be16(p,2) == p.size()
+        if (p.size() < 256)         fail("expected a >=256-byte packet to exercise the BE high byte");
+        else if (p[2] == 0x00)      fail("BE length high byte is zero — high-byte path not exercised");
+        if (be16(p, 2) != p.size()) fail("BE length (high+low) != packet size on a large packet");
+    }
+    if (g_fail == 0) std::cout << "  PASS  BE high length byte held on a large packet\n";
+
+    std::cout << "\n== Mutation: ACK/NG token found beyond byte 42 ==\n";
+    {
+        g_case = "ack-far";
+        static const unsigned char OK[] = {0x3A,0x34,0x32,0x3A,0x4F,0x4B,0x3B}; // ":42:OK;"
+        static const unsigned char NG[] = {0x3A,0x34,0x32,0x3A,0x4E,0x47,0x3B}; // ":42:NG;"
+        // containsSubseq must scan to the real end (hay.size()), not a fixed window.
+        // A token placed at offset 50 in a 60-byte reply is missed by any scanner
+        // that caps its index. Kills cxx_replace_scalar_call (hay.size()->const).
+        Bytes farOk(60, 0x00);
+        for (size_t i = 0; i < sizeof(OK); ++i) farOk[50 + i] = OK[i];
+        Bytes farNg(60, 0x00);
+        for (size_t i = 0; i < sizeof(NG); ++i) farNg[50 + i] = NG[i];
+        if (!protocol::IsWriteAcknowledged(farOk)) fail("':42:OK;' beyond byte 42 not acknowledged");
+        if (protocol::IsWriteRejected(farOk))      fail("':42:OK;' beyond byte 42 flagged rejected");
+        if (!protocol::IsWriteRejected(farNg))     fail("':42:NG;' beyond byte 42 not flagged rejected");
+        if (protocol::IsWriteAcknowledged(farNg))  fail("':42:NG;' beyond byte 42 flagged acknowledged");
+    }
+    if (g_fail == 0) std::cout << "  PASS  far-offset ACK/NG tokens found\n";
+
+    std::cout << "\n== Mutation: IsWritePacket size guard prevents OOB read ==\n";
+    {
+        g_case = "size-guard";
+        // A 14-byte buffer carrying every write marker byte EXCEPT it is one byte
+        // too short to legally index p[14]. The real guard (p.size() >= 15) must
+        // short-circuit to false without ever reading p[14]; this pins that.
+        // NOTE: the matching cxx_replace_scalar_call mutant (p.size()>=15 -> 42>=15)
+        // is the accepted EQUIVALENT survivor documented in mull.yml — it only
+        // manifests as the out-of-bounds read this guard prevents, so no
+        // well-defined test kills it (ASan is intentionally not enabled in
+        // scripts/mull.sh; see mull.yml for why).
+        Bytes shortWrite = {0x02,0x02,0x00,0x0f,0x00,0x00,0x7c,0x7c,0x03,0x00,0x00,0x00,0x42,0xbd}; // 14 bytes
+        if (protocol::IsWritePacket(shortWrite)) fail("14-byte buffer misclassified as a write packet");
+    }
+    if (g_fail == 0) std::cout << "  PASS  short-frame size guard held (no OOB)\n";
+
     std::cout << "\n"
               << (g_fail == 0 ? "ALL PROPERTY TESTS PASSED"
                               : (std::to_string(g_fail) + " PROPERTY CHECK(S) FAILED"))

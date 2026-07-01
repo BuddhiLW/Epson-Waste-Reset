@@ -11,3 +11,15 @@ includePaths:
   - src/protocol.cpp
 
 timeout: 8000
+
+# Expected ceiling: 97% (1 surviving mutant, protocol.cpp IsWritePacket).
+#
+# EQUIVALENT MUTANT — cxx_replace_scalar_call on `p.size() >= 15`, which turns the
+# length guard into `42 >= 15` (always true). It is UNKILLABLE by any well-defined
+# test: `p.size() >= 15` and `42 >= 15` differ only for buffers shorter than 15
+# bytes, and the only way to observe that difference is to read p[6..14] — which is
+# out of bounds for a <15-byte buffer, i.e. the exact undefined behavior the guard
+# exists to prevent. tests/property_test.cpp ("size guard") pins the guard's
+# behavior; AddressSanitizer would report the mutant's OOB, but enabling ASan here
+# makes Mull mutate ASan's own injected shadow-check calls, adding more equivalent
+# mutants than it removes. So we accept this one survivor as equivalent.
