@@ -1,5 +1,5 @@
 #include "ewr/executor.h"
-#include "ewr/protocol.h"
+#include "ewr/vendor.h"
 
 #include <chrono>
 #include <iomanip>
@@ -41,8 +41,8 @@ namespace ewr {
 
     } // namespace
 
-    ProtocolExecutor::ProtocolExecutor(ITransport& transport, std::ostream* trace, std::chrono::milliseconds interPacketDelay)
-        : transport_(transport), trace_(trace), delay_(interPacketDelay)
+    ProtocolExecutor::ProtocolExecutor(ITransport& transport, const IResetProtocol& protocol, std::ostream* trace, std::chrono::milliseconds interPacketDelay)
+        : transport_(transport), protocol_(protocol), trace_(trace), delay_(interPacketDelay)
     {
     }
 
@@ -85,21 +85,21 @@ namespace ewr {
                 std::cout << "-> Packet " << i + 1 << " / " << sequence.size()
                           << " | Sent. (No ACK)" << std::endl;
 
-            if (protocol::IsWritePacket(packet))
+            if (protocol_.IsWritePacket(packet))
             {
                 ++result.writesTotal;
-                if (protocol::IsWriteRejected(response))
+                switch (protocol_.ClassifyReply(response))
                 {
-                    ++result.writesRejected;
-                    allWritesAcked = false;
-                }
-                else if (protocol::IsWriteAcknowledged(response))
-                {
-                    ++result.writesAcked;
-                }
-                else
-                {
-                    allWritesAcked = false;
+                    case Ack::Rejected:
+                        ++result.writesRejected;
+                        allWritesAcked = false;
+                        break;
+                    case Ack::Acknowledged:
+                        ++result.writesAcked;
+                        break;
+                    case Ack::None:
+                        allWritesAcked = false;
+                        break;
                 }
             }
         }

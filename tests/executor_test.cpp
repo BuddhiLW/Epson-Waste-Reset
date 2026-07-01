@@ -8,6 +8,7 @@
 
 #include "ewr/executor.h"
 #include "ewr/protocol.h"
+#include "ewr/vendor.h"
 #include "ewr/generator.h"
 #include "ewr/domain.h"
 
@@ -33,6 +34,20 @@ struct FakeTransport : ewr::ITransport
 
     bool Send(const Bytes& packet) override { sent.push_back(packet); return sendOk; }
     Bytes Drain() override { return idx < responses.size() ? responses[idx++] : Bytes{}; }
+};
+
+// A non-Epson vendor: its own write marker (0xEE) and ack rule (0xAA/0xBB), with
+// no ":42:OK;" token anywhere. Proves ProtocolExecutor gates on the injected
+// IResetProtocol, not on hardcoded Epson bytes.
+struct StubProtocol : ewr::IResetProtocol
+{
+    bool IsWritePacket(const Bytes& p) const override { return !p.empty() && p[0] == 0xEE; }
+    ewr::Ack ClassifyReply(const Bytes& r) const override
+    {
+        if (!r.empty() && r[0] == 0xAA) return ewr::Ack::Acknowledged;
+        if (!r.empty() && r[0] == 0xBB) return ewr::Ack::Rejected;
+        return ewr::Ack::None;
+    }
 };
 
 static Bytes okFrame()  { return {0x02,0x02,0x00,0x10,0x00,0x01,0x7c,0x7c,0x3a,0x34,0x32,0x3a,0x4f,0x4b,0x3b,0x0c}; }
@@ -63,6 +78,7 @@ int main()
 {
     using namespace ewr;
     const auto NODELAY = std::chrono::milliseconds(0);
+    EpsonD4Protocol epson; // the executor's vendor seam; one instance drives all Epson cases
 
     std::cout << "== Executor: honest success gate ==\n";
 
@@ -71,7 +87,7 @@ int main()
         auto seq = resetSeq(1, "Zvubnpsj", {58});
         FakeTransport t;
         t.responses = scriptReplies(seq, okFrame());
-        ProtocolExecutor ex(t, nullptr, NODELAY);
+        ProtocolExecutor ex(t, epson, nullptr, NODELAY);
         auto r = ex.Run(seq);
         check(r.success, "all writes acked -> success");
         check(r.writesTotal == 1 && r.writesAcked == 1 && r.writesRejected == 0, "write accounting (ok case)");
@@ -85,7 +101,7 @@ int main()
         auto seq = resetSeq(1, "Zvubnpsj", {58});
         FakeTransport t;
         t.responses = scriptReplies(seq, d4reply()); // write gets a non-token reply
-        ProtocolExecutor ex(t, nullptr, NODELAY);
+        ProtocolExecutor ex(t, epson, nullptr, NODELAY);
         auto r = ex.Run(seq);
         check(!r.success, "handshake-only replies must NOT report success (false-SUCCESS guard)");
         check(r.writesTotal == 1 && r.writesAcked == 0, "write accounting (unacked case)");
@@ -96,7 +112,7 @@ int main()
         auto seq = resetSeq(1, "Zvubnpsj", {58});
         FakeTransport t;
         t.responses = scriptReplies(seq, ngFrame());
-        ProtocolExecutor ex(t, nullptr, NODELAY);
+        ProtocolExecutor ex(t, epson, nullptr, NODELAY);
         auto r = ex.Run(seq);
         check(!r.success, ":42:NG; must fail");
         check(r.writesRejected == 1 && r.writesTotal == 1, "rejection counted");
@@ -109,7 +125,7 @@ int main()
 
         FakeTransport tAll;
         tAll.responses = scriptReplies(seq, okFrame());
-        ProtocolExecutor exAll(tAll, nullptr, NODELAY);
+        ProtocolExecutor exAll(tAll, epson, nullptr, NODELAY);
         auto rAll = exAll.Run(seq);
         check(rAll.success && rAll.writesTotal == 3 && rAll.writesAcked == 3, "3/3 writes acked -> success");
 
@@ -118,7 +134,7 @@ int main()
         bool droppedFirst = false;
         for (size_t i = 0; i < seq.size(); ++i)
             if (protocol::IsWritePacket(seq[i]) && !droppedFirst) { tOne.responses[i] = d4reply(); droppedFirst = true; }
-        ProtocolExecutor exOne(tOne, nullptr, NODELAY);
+        ProtocolExecutor exOne(tOne, epson, nullptr, NODELAY);
         auto rOne = exOne.Run(seq);
         check(!rOne.success && rOne.writesTotal == 3 && rOne.writesAcked == 2, "2/3 writes acked -> failure");
     }
@@ -128,10 +144,32 @@ int main()
         auto seq = resetSeq(1, "Zvubnpsj", {58});
         FakeTransport t;
         t.sendOk = false;
-        ProtocolExecutor ex(t, nullptr, NODELAY);
+        ProtocolExecutor ex(t, epson, nullptr, NODELAY);
         auto r = ex.Run(seq);
         check(!r.success && r.sendError, "send failure -> failure + sendError");
         check(t.sent.size() == 1, "send failure short-circuits after first packet");
+    }
+
+    // 6) VENDOR-NEUTRALITY: a stub IResetProtocol with its own write marker and
+    //    ack rule drives success/failure with zero Epson bytes — proving the
+    //    executor depends only on the injected protocol (LSP/DIP).
+    {
+        StubProtocol stub;
+        PayloadSequence seq = { {0xEE, 0x01}, {0x00, 0x00}, {0xEE, 0x02} }; // 2 writes (0xEE) + 1 non-write
+
+        FakeTransport tOk;
+        tOk.responses = { {0xAA}, {0x00}, {0xAA} }; // both writes acked by the stub's rule
+        ProtocolExecutor exOk(tOk, stub, nullptr, NODELAY);
+        auto rOk = exOk.Run(seq);
+        check(rOk.success && rOk.writesTotal == 2 && rOk.writesAcked == 2,
+              "stub vendor: custom ack rule (no Epson token) -> success");
+
+        FakeTransport tNg;
+        tNg.responses = { {0xAA}, {0x00}, {0xBB} }; // second write rejected by the stub's rule
+        ProtocolExecutor exNg(tNg, stub, nullptr, NODELAY);
+        auto rNg = exNg.Run(seq);
+        check(!rNg.success && rNg.writesRejected == 1 && rNg.writesTotal == 2,
+              "stub vendor: custom reject rule -> failure");
     }
 
     std::cout << "\n"

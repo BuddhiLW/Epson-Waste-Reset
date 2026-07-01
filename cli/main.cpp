@@ -8,6 +8,7 @@
 #include "ewr/transport.h"
 #include "ewr/executor.h"
 #include "ewr/generator.h"
+#include "ewr/vendor.h"
 
 struct MenuOption
 {
@@ -199,7 +200,8 @@ int main()
     std::cout << "[i] Saving hardware trace to ewr_trace.log for diagnostics." << std::endl;
 
     std::ofstream trace("ewr_trace.log", std::ios::app);
-    ewr::ProtocolExecutor executor(*transport, trace.is_open() ? &trace : nullptr);
+    ewr::EpsonD4Protocol epsonProtocol; // the vendor seam — swap this for another IResetProtocol per device
+    ewr::ProtocolExecutor executor(*transport, epsonProtocol, trace.is_open() ? &trace : nullptr);
     ewr::ExecutionResult result = executor.Run(executionSequence);
     trace.close();
 

@@ -1,6 +1,7 @@
 #pragma once
 #include "ewr/transport.h"
 #include "ewr/domain.h"
+#include "ewr/vendor.h"
 #include <chrono>
 #include <cstddef>
 #include <ostream>
@@ -24,14 +25,16 @@ namespace ewr {
     class ProtocolExecutor
     {
     public:
-        explicit ProtocolExecutor(ITransport& transport,
-                                  std::ostream* trace = nullptr,
-                                  std::chrono::milliseconds interPacketDelay = std::chrono::milliseconds(100));
+        ProtocolExecutor(ITransport& transport,
+                         const IResetProtocol& protocol,
+                         std::ostream* trace = nullptr,
+                         std::chrono::milliseconds interPacketDelay = std::chrono::milliseconds(100));
 
         ExecutionResult Run(const PayloadSequence& sequence);
 
     private:
         ITransport&               transport_;
+        const IResetProtocol&     protocol_;
         std::ostream*             trace_;
         std::chrono::milliseconds delay_;
     };
