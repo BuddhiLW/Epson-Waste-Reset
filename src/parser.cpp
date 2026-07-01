@@ -1,4 +1,5 @@
 #include "ewr/parser.h"
+#include "ewr/protocol.h"
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -38,49 +39,19 @@ namespace ewr {
         return availableModels;
     }
 
+    // Thin I/O wrapper: read the file, then delegate to the pure parser
+    // (ewr::protocol::ParseWiresharkText) so the byte logic is unit-testable.
     std::vector<std::vector<unsigned char>> ParseWiresharkDump(const std::string& filepath)
     {
-        std::vector<std::vector<unsigned char>> sequence;
         std::ifstream file(filepath);
 
         if (!file.is_open())
         {
             std::cerr << "Error: Could not open payload file." << std::endl;
-            return sequence;
+            return {};
         }
 
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-
-        std::regex arrayRegex(R"(\{([^}]+)\})");
-        auto array_begin = std::sregex_iterator(content.begin(), content.end(), arrayRegex);
-        auto array_end = std::sregex_iterator();
-
-        std::vector<std::vector<unsigned char>> all_packets;
-        std::regex byteRegex(R"(0x[0-9a-fA-F]{1,2})");
-
-        for (std::sregex_iterator i = array_begin; i != array_end; ++i)
-        {
-            std::string arrayContent = i->str(1);
-            std::vector<unsigned char> current_packet;
-
-            auto byte_begin = std::sregex_iterator(arrayContent.begin(), arrayContent.end(), byteRegex);
-            for (std::sregex_iterator b = byte_begin; b != array_end; ++b) 
-            {
-                unsigned char hexByte = static_cast<unsigned char>(std::stoul(b->str(), nullptr, 16));
-                current_packet.push_back(hexByte);
-            }
-
-            if (current_packet.size() >= 27 && current_packet[0] == 0x1B && current_packet[1] == 0x00) 
-            {
-                current_packet.erase(current_packet.begin(), current_packet.begin() + 27);
-            }
-
-            if (!current_packet.empty())
-            {
-                all_packets.push_back(current_packet);
-            }
-        }
-
-        return all_packets;
+        return protocol::ParseWiresharkText(content);
     }
 }
