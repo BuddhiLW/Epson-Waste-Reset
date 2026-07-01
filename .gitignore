@@ -45,3 +45,7 @@ Release
 .vscode/
 .idea/
 *.swp
+
+# EWR runtime artifacts
+/ewr
+ewr_trace.log
