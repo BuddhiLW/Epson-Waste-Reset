@@ -1,0 +1,13 @@
+# Mull mutation-testing config for the EWR protocol core.
+# https://mull.readthedocs.io  — LLVM-19 build (mull-19 / clang-19).
+#
+# We instrument only src/protocol.cpp (the pure, safety-critical byte builders)
+# and use tests/property_test.cpp as the oracle. See scripts/mull.sh.
+
+mutators:
+  - cxx_all
+
+includePaths:
+  - src/protocol.cpp
+
+timeout: 8000

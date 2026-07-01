@@ -55,6 +55,25 @@ python3 scripts/mutation_test.py       # expects: 10/10 killed
 It restores every file and a clean build on exit. **Add a mutant:** append a
 `(file, old, new, label)` tuple to `MUTATIONS`.
 
+### Deeper: LLVM-level mutation testing with Mull
+
+`scripts/mutation_test.py` is dependency-free (textual mutants) and runs
+anywhere. For a far larger, *semantic* mutant set,
+[Mull](https://github.com/mull-project/mull) mutates at the LLVM-IR level.
+Prerequisites: `clang-19` and `mull-19` (LLVM 19).
+
+```bash
+scripts/mull.sh          # or: CLANGXX=clang++-19 scripts/mull.sh
+```
+
+It instruments only `src/protocol.cpp` (the pure byte builders), uses
+`tests/property_test.cpp` as the oracle, and reads `mull.yml` (`cxx_all`
+mutators). Current score: **90%** — 31 mutants, 3 known survivors:
+
+- a big-endian `>>`/`<<` swap in `pushBe16` that only differs for packets
+  ≥ 256 bytes (which never occur — the high length byte is always `0x00`);
+- two `push_back` removals (`cxx_remove_void_call`) under investigation.
+
 ## The iron rule
 
 Never rename a protocol literal or unify a byte-writer before the golden test
