@@ -41,17 +41,19 @@ namespace ewr {
 
     // Thin I/O wrapper: read the file, then delegate to the pure parser
     // (ewr::protocol::ParseWiresharkText) so the byte logic is unit-testable.
-    std::vector<std::vector<unsigned char>> ParseWiresharkDump(const std::string& filepath)
+    Result<PayloadSequence> ParseWiresharkDump(const std::string& filepath)
     {
         std::ifstream file(filepath);
 
         if (!file.is_open())
-        {
-            std::cerr << "Error: Could not open payload file." << std::endl;
-            return {};
-        }
+            return Result<PayloadSequence>::Err(ErrorCode::FileNotFound, "could not open payload file " + filepath);
 
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        return protocol::ParseWiresharkText(content);
+        PayloadSequence seq = protocol::ParseWiresharkText(content);
+
+        if (seq.empty())
+            return Result<PayloadSequence>::Err(ErrorCode::EmptyPlan, "no packets found in " + filepath);
+
+        return Result<PayloadSequence>::Ok(std::move(seq));
     }
 }
