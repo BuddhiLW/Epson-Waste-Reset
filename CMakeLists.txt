@@ -15,7 +15,7 @@ endif()
 
 add_library(ewr_core STATIC ${LIB_SOURCES})
 
-target_include_directories(ewr_core PUBLIC 
+target_include_directories(ewr_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/vendor>
 )
@@ -26,7 +26,7 @@ else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
     pkg_check_modules(LIBCURL REQUIRED libcurl)
-    
+
     target_include_directories(ewr_core PRIVATE ${LIBUSB_INCLUDE_DIRS} ${LIBCURL_INCLUDE_DIRS})
     target_link_libraries(ewr_core PRIVATE ${LIBUSB_LIBRARIES} ${LIBCURL_LIBRARIES})
 endif()
@@ -34,3 +34,17 @@ endif()
 add_executable(ewr cli/main.cpp)
 target_link_libraries(ewr PRIVATE ewr_core)
 set_target_properties(ewr PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# ── Tests: golden-byte safety net (P0) ───────────────────────────────────────
+# ewr_core is a STATIC lib, so the test pulls only the object files it references
+# (generator.o + parser.o). generator.o references the OTA download symbols, so
+# the test links the same platform HTTP lib; USB objects are not referenced.
+enable_testing()
+add_executable(golden_test tests/golden_test.cpp)
+target_link_libraries(golden_test PRIVATE ewr_core)
+if(WIN32)
+    target_link_libraries(golden_test PRIVATE urlmon)
+else()
+    target_link_libraries(golden_test PRIVATE ${LIBUSB_LIBRARIES} ${LIBCURL_LIBRARIES})
+endif()
+add_test(NAME golden_test COMMAND golden_test)
