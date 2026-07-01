@@ -73,7 +73,7 @@ int main()
     m.reset_values = {0};
 
     UniversalGenerator gen;
-    auto seq = gen.GenerateSequence(m);
+    auto seq = gen.GenerateSequence(m).value();
 
     checkTrue("sequence has 6 packets (3 prologue + 1x(grant,req,write))", seq.size() == 6);
     if (seq.size() == 6)
@@ -101,7 +101,7 @@ int main()
     std::cout << "\n== Non-zero reset value survives into the write byte ==\n";
     DbPrinterModel mnz = m;
     mnz.reset_values = {7}; // e.g. EP-301 carries non-zero resets — must never be hardcoded to 0
-    auto seqnz = gen.GenerateSequence(mnz);
+    auto seqnz = gen.GenerateSequence(mnz).value();
     checkTrue("write packet value byte (offset 17) == 0x07",
               seqnz.size() == 6 && seqnz[5].size() == 26 && seqnz[5][17] == 0x07);
 
@@ -113,7 +113,7 @@ int main()
             f << R"({ "TESTPAD": { "rkey":1, "wkey":"Zvubnpsj", "addresses":[58,59], "reset":[0] } })";
         }
         UniversalGenerator g2;
-        checkTrue("LoadDatabase ok", g2.LoadDatabase(dbp.string()));
+        checkTrue("LoadDatabase ok", g2.LoadDatabase(dbp.string()).ok());
         auto models = g2.GetAvailableModels();
         checkTrue("one model loaded", models.size() == 1);
         if (models.size() == 1)
@@ -121,7 +121,7 @@ int main()
             const auto& pm = models[0];
             checkTrue("addresses parsed [58,59]", pm.addresses == std::vector<uint16_t>{58, 59});
             checkTrue("reset_values padded to [0,0]", pm.reset_values == std::vector<uint8_t>{0, 0});
-            checkTrue("padded model builds 9 packets with no OOB", gen.GenerateSequence(pm).size() == 9);
+            checkTrue("padded model builds 9 packets with no OOB", gen.GenerateSequence(pm).value().size() == 9);
         }
         fs::remove(dbp);
     }
@@ -153,7 +153,7 @@ int main()
             f << arr(a) << arr(b) << arr(c) << arr(d);
         }
 
-        auto pk = ewr::ParseWiresharkDump(dump.string());
+        auto pk = ewr::ParseWiresharkDump(dump.string()).value();
         checkTrue("3 packets survive (empty-after-strip dropped)", pk.size() == 3);
         if (pk.size() == 3)
         {

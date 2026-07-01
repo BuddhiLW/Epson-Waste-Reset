@@ -1,4 +1,6 @@
 #pragma once
+#include "ewr/domain.h"
+#include "ewr/result.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -26,11 +28,11 @@ namespace ewr {
         UniversalGenerator& operator=(const UniversalGenerator&) = delete;
 
         bool SyncDatabaseOTA();
-        bool LoadDatabase(const std::string& filepath);
+        Result<size_t> LoadDatabase(const std::string& filepath);
 
         bool IsEmpty() const;
         std::vector<DbPrinterModel> GetAvailableModels() const;
-        std::vector<std::vector<unsigned char>> GenerateSequence(const DbPrinterModel& model) const;
+        Result<PayloadSequence> GenerateSequence(const DbPrinterModel& model) const;
     private:
         std::vector<unsigned char> GenerateWritePacket(uint16_t rkey, uint16_t address, uint8_t value, const std::string& wkey) const;
     private:

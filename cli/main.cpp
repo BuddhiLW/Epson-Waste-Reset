@@ -22,6 +22,20 @@ std::string toLower(std::string str) {
     return str;
 }
 
+// Turn a specific ErrorCode into an actionable hint, so a failure tells the user
+// what actually went wrong instead of a generic "failed to construct payload".
+static const char* errorHint(ewr::ErrorCode code)
+{
+    switch (code)
+    {
+        case ewr::ErrorCode::FileNotFound:   return "Check that the file exists and the path is correct.";
+        case ewr::ErrorCode::ParseFailed:    return "The file was found but its contents could not be parsed.";
+        case ewr::ErrorCode::EmptyPlan:      return "This model carries no reset data, so there is nothing to send.";
+        case ewr::ErrorCode::DownloadFailed: return "OTA update failed; the local cache was left untouched.";
+    }
+    return "";
+}
+
 int main()
 {
     std::cout << "========================================" << std::endl;
@@ -37,27 +51,43 @@ int main()
     else
         std::cout << "OFFLINE (Using local cache)." << std::endl;
 
-    generator.LoadDatabase("database.json");
+    // The database is optional: a missing/corrupt file is not fatal as long as
+    // replay dumps exist, but the reason must not be silently swallowed.
+    auto loadResult = generator.LoadDatabase("database.json");
+    if (!loadResult.ok())
+        std::cerr << "[!] Smart database unavailable: " << loadResult.error().message << std::endl;
+
     auto replayModels = ewr::ScanModelsFolder("models");
     auto smartModels = generator.GetAvailableModels();
 
-    if (replayModels.empty() && smartModels.empty())
+    std::vector<MenuOption> options;
+
+    // Smart models with no EEPROM addresses can never produce a write plan (they
+    // fail with EmptyPlan at generation time), so they must not be offered in the
+    // menu. Filtering them here is what keeps the ~113 address-less models out.
+    size_t hiddenEmpty = 0;
+    for (const auto& sm : smartModels)
     {
-        std::cerr << "\n[!] No payloads found. You need internet access on first run, or a 'models' folder with payload dumps." << std::endl;
+        if (sm.addresses.empty()) { ++hiddenEmpty; continue; }
+        options.push_back({ sm.name + " (Smart Protocol)", false, {}, sm });
+    }
+    size_t smartUsable = options.size();
+
+    for (const auto& lm : replayModels)
+        options.push_back({ lm.name + " (Replay)", true, lm, {} });
+
+    if (options.empty())
+    {
+        std::cerr << "\n[!] No usable payloads found. You need internet access on first run, or a 'models' folder with payload dumps." << std::endl;
         std::cin.get();
         return 1;
     }
 
-    std::cout << "[i] Loaded " << smartModels.size() << " Smart Protocol payloads." << std::endl;
+    std::cout << "[i] Loaded " << smartUsable << " Smart Protocol payloads";
+    if (hiddenEmpty)
+        std::cout << " (" << hiddenEmpty << " address-less models hidden)";
+    std::cout << "." << std::endl;
     std::cout << "[i] Loaded " << replayModels.size() << " Custom payloads.\n" << std::endl;
-
-    std::vector<MenuOption> options;
-
-    for (const auto& sm : smartModels)
-        options.push_back({ sm.name + " (Smart Protocol)", false, {}, sm });
-
-    for (const auto& lm : replayModels)
-        options.push_back({ lm.name + " (Replay)", true, lm, {} });
 
     std::sort(options.begin(), options.end(), [](const MenuOption& a, const MenuOption& b)
         {
@@ -127,24 +157,31 @@ int main()
         }
     }
 
-    std::vector<std::vector<unsigned char>> executionSequence;
+    ewr::PayloadSequence executionSequence;
 
     if (selected.isReplay)
     {
         std::cout << "\n[!] Parsing replay Wireshark dump for " << selected.displayName << "..." << std::endl;
-        executionSequence = ewr::ParseWiresharkDump(selected.replayModel.filepath);
+        auto parsed = ewr::ParseWiresharkDump(selected.replayModel.filepath);
+        if (!parsed.ok())
+        {
+            std::cerr << "[-] " << parsed.error().message << "\n    " << errorHint(parsed.error().code) << std::endl;
+            std::cin.get();
+            return 1;
+        }
+        executionSequence = std::move(parsed.value());
     }
     else
     {
         std::cout << "\n[*] Generating safe Smart Protocol R/W sequence for " << selected.displayName << "..." << std::endl;
-        executionSequence = generator.GenerateSequence(selected.smartModel);
-    }
-
-    if (executionSequence.empty())
-    {
-        std::cerr << "[-] Failed to construct payload. Exiting.\n";
-        std::cin.get();
-        return 1;
+        auto generated = generator.GenerateSequence(selected.smartModel);
+        if (!generated.ok())
+        {
+            std::cerr << "[-] " << generated.error().message << "\n    " << errorHint(generated.error().code) << std::endl;
+            std::cin.get();
+            return 1;
+        }
+        executionSequence = std::move(generated.value());
     }
 
     std::cout << "Scanning USB ports for Epson device..." << std::endl;
