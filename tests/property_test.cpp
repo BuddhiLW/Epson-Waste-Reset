@@ -179,6 +179,61 @@ int main()
     }
     if (g_fail == 0) std::cout << "  PASS  all parse properties held\n";
 
+    std::cout << "\n== Property: write-packet classification + ACK token parsing ==\n";
+    {
+        g_case = "ack";
+
+        // Every generated write packet must be recognized as a write.
+        for (int it = 0; it < 500 && g_fail == 0; ++it)
+        {
+            uint16_t rkey = static_cast<uint16_t>(rng.next() & 0xFFFF);
+            uint16_t addr = static_cast<uint16_t>(rng.next() & 0xFFFF);
+            uint8_t  val  = static_cast<uint8_t>(rng.next() & 0xFF);
+            std::string wkey;
+            uint32_t W = 1 + rng.upto(8);
+            for (uint32_t i = 0; i < W; ++i)
+                wkey.push_back(static_cast<char>('a' + rng.upto(26)));
+
+            auto p = protocol::BuildWritePacket(static_cast<ResetKey>(rkey), EepromWrite{static_cast<EepromAddress>(addr), val}, wkey);
+            if (!protocol::IsWritePacket(p)) fail("generated write packet not classified as write");
+        }
+
+        // Prologue / handshake frames must NOT be classified as writes.
+        Bytes ejl(proto::EJL_PACKET_MODE_INIT.begin(), proto::EJL_PACKET_MODE_INIT.end());
+        Bytes d4init(proto::D4_INIT.begin(), proto::D4_INIT.end());
+        Bytes grant(proto::D4_CREDIT_GRANT.begin(), proto::D4_CREDIT_GRANT.end());
+        Bytes creq(proto::D4_CREDIT_REQUEST.begin(), proto::D4_CREDIT_REQUEST.end());
+        if (protocol::IsWritePacket(ejl))   fail("EJL init misclassified as write");
+        if (protocol::IsWritePacket(d4init)) fail("D4 init misclassified as write");
+        if (protocol::IsWritePacket(grant)) fail("credit grant misclassified as write");
+        if (protocol::IsWritePacket(creq))  fail("credit request misclassified as write");
+
+        // The exact hardware ACK frames captured on the wire.
+        Bytes okFrame = {0x02,0x02,0x00,0x10,0x00,0x01,0x7c,0x7c,0x3a,0x34,0x32,0x3a,0x4f,0x4b,0x3b,0x0c}; // ":42:OK;"
+        Bytes ngFrame = {0x02,0x02,0x00,0x10,0x00,0x01,0x7c,0x7c,0x3a,0x34,0x32,0x3a,0x4e,0x47,0x3b,0x0c}; // ":42:NG;"
+        Bytes d4reply = {0x00,0x00,0x00,0x0a,0x01,0x00,0x83,0x00,0x02,0x02};                               // handshake, no token
+        if (!protocol::IsWriteAcknowledged(okFrame)) fail(":42:OK; frame not acknowledged");
+        if (protocol::IsWriteRejected(okFrame))      fail(":42:OK; frame flagged as rejected");
+        if (!protocol::IsWriteRejected(ngFrame))     fail(":42:NG; frame not flagged rejected");
+        if (protocol::IsWriteAcknowledged(ngFrame))  fail(":42:NG; frame flagged acknowledged");
+        if (protocol::IsWriteAcknowledged(d4reply))  fail("handshake reply falsely acknowledged");
+        if (protocol::IsWriteRejected(d4reply))      fail("handshake reply falsely rejected");
+
+        // Boundary cases pinning the substring search.
+        Bytes tokenOnly = {0x3a,0x34,0x32,0x3a,0x4f,0x4b,0x3b};             // token IS the whole buffer (at the end)
+        Bytes tokenTail = {0x00,0x00,0x3a,0x34,0x32,0x3a,0x4f,0x4b,0x3b};   // token is the final 7 bytes
+        Bytes tooShort  = {0x3a,0x34,0x32,0x3a};                            // shorter than the 7-byte token
+        if (!protocol::IsWriteAcknowledged(tokenOnly)) fail("exact-length ':42:OK;' not acknowledged");
+        if (!protocol::IsWriteAcknowledged(tokenTail)) fail("trailing ':42:OK;' not acknowledged");
+        if (protocol::IsWriteAcknowledged(tooShort))   fail("sub-token buffer falsely acknowledged");
+        if (protocol::IsWriteRejected(tooShort))       fail("sub-token buffer falsely rejected");
+
+        // Minimal-width write frame (15 bytes) exercises the size>=15 guard boundary.
+        Bytes minWrite = {0x02,0x02,0x00,0x0f,0x00,0x00,0x7c,0x7c,0x03,0x00,0x00,0x00,0x42,0xbd,0x21};
+        if (!protocol::IsWritePacket(minWrite)) fail("15-byte write frame not classified as write");
+    }
+    if (g_fail == 0) std::cout << "  PASS  ack classification + token parsing held\n";
+
     std::cout << "\n"
               << (g_fail == 0 ? "ALL PROPERTY TESTS PASSED"
                               : (std::to_string(g_fail) + " PROPERTY CHECK(S) FAILED"))

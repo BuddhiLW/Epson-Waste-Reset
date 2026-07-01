@@ -9,7 +9,7 @@ network, or USB required**. Three complementary techniques.
 ```bash
 cmake -B build
 cmake --build build
-ctest --test-dir build --output-on-failure    # runs golden_test + property_test
+ctest --test-dir build --output-on-failure    # golden_test + property_test + executor_test
 ```
 
 Run a binary directly for per-assertion output:
@@ -17,6 +17,7 @@ Run a binary directly for per-assertion output:
 ```bash
 ./build/golden_test
 ./build/property_test
+./build/executor_test
 ```
 
 ## 1. Golden-byte tests — `tests/golden_test.cpp`
@@ -41,7 +42,22 @@ model.
 **Add a property:** extend the relevant loop; keep it a pure invariant (no fixed
 bytes — that is golden's job).
 
-## 3. Mutation testing — `scripts/mutation_test.py`
+## 3. Executor / seam tests — `tests/executor_test.cpp`
+
+Drive the shared `ProtocolExecutor` through a `FakeTransport` (an in-memory
+`ITransport` that records sent packets and returns scripted device replies) — no
+USB, no printer. This is where the **honest success gate** is pinned: success is
+declared only when every EEPROM-write packet's own reply carries `:42:OK;`. The
+headline case is the regression guard for the historical false-SUCCESS defect —
+a run where every D4 handshake replies but the write is *not* acknowledged must
+report failure. Also covers explicit `:42:NG;` rejection, partial multi-address
+acks, and send-error short-circuit.
+
+**Add a case:** build a `PayloadSequence`, script one `Drain()` reply per packet
+(`:42:OK;` / `:42:NG;` / a handshake reply), run the executor, assert on
+`ExecutionResult`.
+
+## 4. Mutation testing — `scripts/mutation_test.py`
 
 Proves the tests actually **bite**. It seeds deliberate defects into the
 EEPROM-writing path (wrong command byte, non-zero credit, flipped endianness,
@@ -66,13 +82,23 @@ Prerequisites: `clang-19` and `mull-19` (LLVM 19).
 scripts/mull.sh          # or: CLANGXX=clang++-19 scripts/mull.sh
 ```
 
-It instruments only `src/protocol.cpp` (the pure byte builders), uses
+It instruments only `src/protocol.cpp` (the pure byte builders + the ACK
+classifiers `IsWritePacket` / `IsWriteAcknowledged` / `IsWriteRejected`), uses
 `tests/property_test.cpp` as the oracle, and reads `mull.yml` (`cxx_all`
-mutators). Current score: **90%** — 31 mutants, 3 known survivors:
+mutators). Current score: **89%** — 56 mutants, 6 survivors, all understood:
 
 - a big-endian `>>`/`<<` swap in `pushBe16` that only differs for packets
   ≥ 256 bytes (which never occur — the high length byte is always `0x00`);
-- two `push_back` removals (`cxx_remove_void_call`) under investigation.
+- two `cxx_remove_void_call` mutants that drop a `push_back` — Mull cannot kill
+  these against a same-process oracle;
+- two `cxx_replace_scalar_call` mutants that swap a `.size()` for the literal
+  `42`, equivalent over the real input domain (write frames are always
+  ≥ 19 bytes, and the substring loop bound only over-runs into a read that the
+  oracle's inputs never distinguish);
+- one `cxx_assign_const` on `match = false` inside the substring search that Mull
+  reports as surviving but which the property suite provably **kills** (flipping
+  it to `match = true` makes the ACK-token assertions fail) — a Mull-encoding
+  false survivor, tracked under the "investigate Mull survivors" task.
 
 ## The iron rule
 

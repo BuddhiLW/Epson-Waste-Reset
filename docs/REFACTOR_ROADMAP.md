@@ -11,7 +11,7 @@ one lever all four frameworks agree on.
 | **P0** | Golden-byte safety net | ✅ done |
 | **P1** | Extract pure protocol core + value objects | ✅ core done (`DbPrinterModel`→`PrinterProfile` rename deferred) |
 | **P2** | `Result<T,Error>` seam, honest errors, filter empty-address models from the menu | ⬜ todo |
-| **P3** | `ITransport` + owned device, one shared executor, the real success fix | ⬜ todo |
+| **P3** | `ITransport` + owned device, one shared executor, the real success fix | ✅ done |
 | **P-side** | OTA download hardening (atomic temp-rename, `fclose(NULL)` UB) | ⬜ todo |
 
 ## Hardware-safety invariants (must survive every refactor)
@@ -32,11 +32,32 @@ Pinned by `tests/golden_test.cpp` + `tests/property_test.cpp`:
 
 ## The standout defect (fixed in P3)
 
-Success is currently declared on **any** inbound byte. The D4 handshake packets
-always reply, so the tool can report `SUCCESS` even if every EEPROM write was
-rejected. The real per-write reply is the ASCII token `:42:OK;` (vs `:42:NG;`).
-P3 adds a pure `IsWriteAcknowledged` that parses it and gates SUCCESS on every
-write.
+Success *used to be* declared on **any** inbound byte. The D4 handshake packets
+always reply, so the tool could report `SUCCESS` even if every EEPROM write was
+rejected. The real per-write reply is the ASCII token `:42:OK;` (vs `:42:NG;`),
+confirmed against a live `ewr_trace.log` capture
+(`02 02 00 10 00 01 7c 7c :42:OK; 0c`).
+
+P3 fixed this. The pure core gained `protocol::IsWritePacket` /
+`IsWriteAcknowledged` / `IsWriteRejected`; the new shared `ProtocolExecutor`
+gates SUCCESS on **every** write packet's own `:42:OK;`, and `tests/executor_test.cpp`
+drives it through a `FakeTransport` so the regression can never come back
+without a red test.
+
+## P3 shape (SOLID / CPPB / DDD)
+
+- **`ITransport{Send,Drain}`** (`include/ewr/transport.h`) — the byte-pipe seam.
+  `ConnectEpsonPrinter()` is a factory returning an owning `unique_ptr` whose
+  destructor releases the interface, reattaches the kernel driver, and tears
+  libusb down (**RAII replaced `DisconnectPrinter`**).
+- **`ProtocolExecutor`** (`include/ewr/executor.h`, `src/executor.cpp`) — one
+  platform-independent send → 100 ms settle → 250 ms drain → trace → gate loop,
+  shared by both back-ends.
+- The mutable module globals `EP_IN` / `EP_OUT` / `TARGET_INTERFACE` became
+  per-instance members of `LibUsbTransport`, which also fixed a latent
+  stale-endpoint bug (the old connect guard tested the globals, not the
+  per-iteration locals, so a second Epson device could be claimed on the first
+  device's interface/endpoints).
 
 ## Out of scope (proportionality)
 

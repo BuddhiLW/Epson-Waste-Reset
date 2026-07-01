@@ -1,10 +1,12 @@
 #include <iostream>
+#include <fstream>
 #include <algorithm>
 #include <string>
 #include <cctype>
 #include "ewr/payload.h"
 #include "ewr/parser.h"
-#include "ewr/usb.h"
+#include "ewr/transport.h"
+#include "ewr/executor.h"
 #include "ewr/generator.h"
 
 struct MenuOption
@@ -146,9 +148,9 @@ int main()
     }
 
     std::cout << "Scanning USB ports for Epson device..." << std::endl;
-    ewr::EwrDeviceHandle hPrinter = ewr::AutoConnectEpsonPrinter();
+    std::unique_ptr<ewr::ITransport> transport = ewr::ConnectEpsonPrinter();
 
-    if (!hPrinter)
+    if (!transport)
     {
         std::cerr << "[ERROR] Could not find an Epson printer. Is it turned on and plugged in?" << std::endl;
         std::cout << "Press Enter to exit..." << std::endl;
@@ -156,16 +158,38 @@ int main()
         return 1;
     }
 
-    if (ewr::ExecutePayloadSequence(hPrinter, executionSequence))
+    std::cout << "\nExecuting universal hardware state machine..." << std::endl;
+    std::cout << "[i] Saving hardware trace to ewr_trace.log for diagnostics." << std::endl;
+
+    std::ofstream trace("ewr_trace.log", std::ios::app);
+    ewr::ProtocolExecutor executor(*transport, trace.is_open() ? &trace : nullptr);
+    ewr::ExecutionResult result = executor.Run(executionSequence);
+    trace.close();
+
+    if (result.success)
     {
         std::cout << "\n========================================" << std::endl;
         std::cout << " SUCCESS! Turn the printer OFF, then ON." << std::endl;
         std::cout << "========================================" << std::endl;
     }
+    else
+    {
+        std::cerr << "\n[ERROR] The reset was NOT confirmed by the printer." << std::endl;
+        if (result.sendError)
+            std::cerr << "    A packet failed to transmit over USB." << std::endl;
+        else if (result.writesRejected > 0)
+            std::cerr << "    The printer REJECTED " << result.writesRejected << " of " << result.writesTotal << " EEPROM writes (:42:NG;)." << std::endl;
+        else
+            std::cerr << "    Only " << result.writesAcked << " of " << result.writesTotal << " EEPROM writes were acknowledged (:42:OK;)." << std::endl;
+        std::cerr << "[!] Diagnostic tips:" << std::endl;
+        std::cerr << "    1. Unplug the printer's USB cable, wait 5 seconds, and plug it back in." << std::endl;
+        std::cerr << "    2. Restart the printer and try again." << std::endl;
+        std::cerr << "    3. Ensure no other printing software (like CUPS or Epson Status Monitor) is active." << std::endl;
+    }
 
-    ewr::DisconnectPrinter(hPrinter);
-
+    // RAII: transport's destructor releases the interface, reattaches the kernel
+    // driver, and tears libusb down. No explicit DisconnectPrinter.
     std::cout << "\nPress Enter to exit..." << std::endl;
     std::cin.get();
-    return 0;
+    return result.success ? 0 : 1;
 }
