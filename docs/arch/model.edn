@@ -1,0 +1,149 @@
+;;;;
+;;;; Overarch model for EWR (Epson Waste Reset)
+;;;; C4 elements: person, system (+ external), containers, components, relations.
+;;;;
+#{;;;
+  ;;; Actors
+  ;;;
+  {:el :person
+   :id :ewr/user
+   :name "User"
+   :desc "Owner of an Epson printer resetting its waste-ink pad counter."}
+
+  ;;;
+  ;;; External systems
+  ;;;
+  {:el :system
+   :id :ewr.ext/epson-printer
+   :external true
+   :name "Epson Printer"
+   :desc "IEEE-1284.4 (D4) USB device holding the waste-ink EEPROM counters."}
+  {:el :system
+   :id :ewr.ext/github-db
+   :external true
+   :name "OTA Database (GitHub raw)"
+   :desc "Serves the latest database.json over HTTPS."}
+  {:el :system
+   :id :ewr.ext/reinkpy
+   :external true
+   :name "reinkpy DB (Codeberg)"
+   :desc "Upstream source of printer keys/offsets (epson.toml)."}
+
+  ;;;
+  ;;; System under design (with containers + components)
+  ;;;
+  {:el :system
+   :id :ewr/system
+   :name "EWR (Epson Waste Reset)"
+   :desc "Cross-platform C++ CLI that zeroes Epson waste-ink counters over USB."
+   :ct #{{:el :container
+          :id :ewr.app/cli
+          :name "ewr (CLI)"
+          :tech "C++17 executable"
+          :desc "Banner, model search/menu, orchestration (cli/main.cpp)."}
+
+         {:el :container
+          :id :ewr.app/core
+          :name "ewr_core"
+          :tech "C++17 static library"
+          :desc "Protocol construction, database, replay and USB transport."
+          :ct #{{:el :component
+                 :id :ewr.core/proto
+                 :name "Protocol Constants"
+                 :tech "proto.h (header)"
+                 :desc "DATA: named D4/EJL constants + the five fixed frames."}
+                {:el :component
+                 :id :ewr.core/domain
+                 :name "Domain Value Objects"
+                 :tech "domain.h (header)"
+                 :desc "ResetKey, EepromAddress, EepromWrite, PayloadSequence."}
+                {:el :component
+                 :id :ewr.core/protocol
+                 :name "Protocol Core"
+                 :tech "protocol.cpp (pure)"
+                 :desc "CALCULATION: BuildWritePacket / BuildResetSequence / ParseWiresharkText."}
+                {:el :component
+                 :id :ewr.core/generator
+                 :name "Smart Generator"
+                 :tech "generator.cpp, libcurl/urlmon, nlohmann"
+                 :desc "OTA sync + JSON load; delegates byte building to the core."}
+                {:el :component
+                 :id :ewr.core/parser
+                 :name "Replay Parser"
+                 :tech "parser.cpp, std::filesystem"
+                 :desc "Model discovery + file read; delegates parsing to the core."}
+                {:el :component
+                 :id :ewr.core/usb
+                 :name "USB Transport"
+                 :tech "usb_linux/usb_windows.cpp, libusb/SetupAPI"
+                 :desc "Device discovery + bulk D4 transfer + ACK loop."}}}
+
+         {:el :container
+          :id :ewr.app/database-file
+          :subtype :database
+          :name "database.json"
+          :tech "JSON file"
+          :desc "Local cache of per-model rkey/wkey/addresses/reset."}
+
+         {:el :container
+          :id :ewr.app/models-dir
+          :subtype :database
+          :name "models/*.c"
+          :tech "Wireshark C-array dumps"
+          :desc "Raw replay payloads for models not in the database."}}}
+
+  ;;;
+  ;;; Relations — System Context level
+  ;;;
+  {:el :rel :id :ewr.rel/user-uses-system
+   :from :ewr/user :to :ewr/system :name "resets waste counter using"}
+  {:el :rel :id :ewr.rel/system-resets-printer
+   :from :ewr/system :to :ewr.ext/epson-printer :name "writes EEPROM over USB" :tech "IEEE-1284.4 / D4"}
+  {:el :rel :id :ewr.rel/system-downloads-db
+   :from :ewr/system :to :ewr.ext/github-db :name "downloads model DB" :tech "HTTPS"}
+  {:el :rel :id :ewr.rel/reinkpy-syncs-github
+   :from :ewr.ext/reinkpy :to :ewr.ext/github-db :name "synced into via CI" :tech "update_db.py"}
+
+  ;;;
+  ;;; Relations — Container level
+  ;;;
+  {:el :rel :id :ewr.rel/user-uses-cli
+   :from :ewr/user :to :ewr.app/cli :name "selects a printer model" :tech "stdin/stdout"}
+  {:el :rel :id :ewr.rel/cli-uses-core
+   :from :ewr.app/cli :to :ewr.app/core :name "builds sequence, drives reset"}
+  {:el :rel :id :ewr.rel/core-downloads-db
+   :from :ewr.app/core :to :ewr.ext/github-db :name "GET database.json" :tech "HTTPS"}
+  {:el :rel :id :ewr.rel/core-reads-dbfile
+   :from :ewr.app/core :to :ewr.app/database-file :name "reads / writes"}
+  {:el :rel :id :ewr.rel/core-reads-models
+   :from :ewr.app/core :to :ewr.app/models-dir :name "reads replay dumps"}
+  {:el :rel :id :ewr.rel/core-writes-printer
+   :from :ewr.app/core :to :ewr.ext/epson-printer :name "bulk-writes D4 packets" :tech "USB"}
+
+  ;;;
+  ;;; Relations — Component level
+  ;;;
+  {:el :rel :id :ewr.rel/cli-calls-generator
+   :from :ewr.app/cli :to :ewr.core/generator :name "SyncDatabaseOTA / LoadDatabase / GenerateSequence"}
+  {:el :rel :id :ewr.rel/cli-calls-parser
+   :from :ewr.app/cli :to :ewr.core/parser :name "ScanModelsFolder / ParseWiresharkDump"}
+  {:el :rel :id :ewr.rel/cli-calls-usb
+   :from :ewr.app/cli :to :ewr.core/usb :name "AutoConnect / ExecutePayloadSequence"}
+  {:el :rel :id :ewr.rel/generator-uses-protocol
+   :from :ewr.core/generator :to :ewr.core/protocol :name "BuildResetSequence"}
+  {:el :rel :id :ewr.rel/parser-uses-protocol
+   :from :ewr.core/parser :to :ewr.core/protocol :name "ParseWiresharkText"}
+  {:el :rel :id :ewr.rel/protocol-reads-proto
+   :from :ewr.core/protocol :to :ewr.core/proto :name "reads constants"}
+  {:el :rel :id :ewr.rel/protocol-uses-domain
+   :from :ewr.core/protocol :to :ewr.core/domain :name "uses value objects"}
+  {:el :rel :id :ewr.rel/generator-downloads-db
+   :from :ewr.core/generator :to :ewr.ext/github-db :name "GET" :tech "HTTPS"}
+  {:el :rel :id :ewr.rel/generator-reads-dbfile
+   :from :ewr.core/generator :to :ewr.app/database-file :name "reads / writes"}
+  {:el :rel :id :ewr.rel/parser-reads-models
+   :from :ewr.core/parser :to :ewr.app/models-dir :name "reads"}
+  {:el :rel :id :ewr.rel/usb-writes-printer
+   :from :ewr.core/usb :to :ewr.ext/epson-printer :name "bulk write D4" :tech "libusb / SetupAPI"}
+  ;
+  }

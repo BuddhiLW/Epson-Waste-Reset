@@ -4,6 +4,31 @@ EWR turns a printer model into a byte-exact IEEE-1284.4 (D4) USB conversation
 that zeroes the waste-ink EEPROM counters. The code is organized as three
 strata; every dependency points **downward**.
 
+## Diagrams (C4)
+
+Generated from the [Overarch](https://github.com/soulspace-org/overarch) model in
+[`arch/`](arch/) (`overarch` → PlantUML → PNG). To regenerate, see
+[`arch/README.md`](arch/README.md).
+
+### Level 1 — System Context
+
+![EWR System Context](images/context-view.png)
+
+### Level 2 — Containers
+
+![EWR Containers](images/container-view.png)
+
+### Level 3 — Components of `ewr_core`
+
+The pure core (`proto` / `domain` / `protocol`) sits at the bottom; the I/O
+components delegate *into* it — the data → calculation → action spine, drawn.
+
+![EWR Components](images/component-view.png)
+
+### Dynamic — CLI reset flow (runtime)
+
+![EWR CLI Reset Flow](images/cli-flow-view.png)
+
 ## Layers (data → calculation → action)
 
 | Stratum | Rule | Lives in |
