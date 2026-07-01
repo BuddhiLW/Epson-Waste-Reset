@@ -1,0 +1,118 @@
+;;;;
+;;;; Overarch views for EWR — C4 (context/container/component) + a dynamic CLI flow.
+;;;;
+#{;;;
+  ;;; C4 Level 1 — System Context
+  ;;;
+  {:el :context-view
+   :id :ewr/context-view
+   :title "EWR — System Context"
+   :desc "EWR, its user, the printer it resets, and where the model DB comes from."
+   :ct [{:ref :ewr/user}
+        {:ref :ewr/system}
+        {:ref :ewr.ext/epson-printer}
+        {:ref :ewr.ext/github-db}
+        {:ref :ewr.ext/reinkpy}
+
+        {:ref :ewr.rel/user-uses-system :direction :down}
+        {:ref :ewr.rel/system-resets-printer :direction :down}
+        {:ref :ewr.rel/system-downloads-db :direction :right}
+        {:ref :ewr.rel/reinkpy-syncs-github :direction :down}]}
+
+  ;;;
+  ;;; C4 Level 2 — Containers
+  ;;;
+  {:el :container-view
+   :id :ewr/container-view
+   :title "EWR — Containers"
+   :desc "The executable, the core library, the local data stores and their neighbours."
+   :ct [{:ref :ewr/user}
+        {:ref :ewr.app/cli}
+        {:ref :ewr.app/core}
+        {:ref :ewr.app/database-file}
+        {:ref :ewr.app/models-dir}
+        {:ref :ewr.ext/github-db}
+        {:ref :ewr.ext/epson-printer}
+
+        {:ref :ewr.rel/user-uses-cli :direction :down}
+        {:ref :ewr.rel/cli-uses-core :direction :down}
+        {:ref :ewr.rel/core-downloads-db :direction :right}
+        {:ref :ewr.rel/core-reads-dbfile}
+        {:ref :ewr.rel/core-reads-models}
+        {:ref :ewr.rel/core-writes-printer :direction :down}]}
+
+  ;;;
+  ;;; C4 Level 3 — Components of ewr_core (the data/calculation/action layering)
+  ;;;
+  {:el :component-view
+   :id :ewr/component-view
+   :title "EWR — Components of ewr_core"
+   :desc "Pure core (proto/domain/protocol) with the I/O components delegating into it."
+   :ct [{:ref :ewr.app/cli}
+        {:ref :ewr.core/generator}
+        {:ref :ewr.core/parser}
+        {:ref :ewr.core/usb}
+        {:ref :ewr.core/protocol}
+        {:ref :ewr.core/proto}
+        {:ref :ewr.core/domain}
+        {:ref :ewr.app/database-file}
+        {:ref :ewr.app/models-dir}
+        {:ref :ewr.ext/github-db}
+        {:ref :ewr.ext/epson-printer}
+
+        {:ref :ewr.rel/cli-calls-generator}
+        {:ref :ewr.rel/cli-calls-parser}
+        {:ref :ewr.rel/cli-calls-usb}
+        {:ref :ewr.rel/generator-uses-protocol}
+        {:ref :ewr.rel/parser-uses-protocol}
+        {:ref :ewr.rel/protocol-reads-proto}
+        {:ref :ewr.rel/protocol-uses-domain}
+        {:ref :ewr.rel/generator-downloads-db :direction :right}
+        {:ref :ewr.rel/generator-reads-dbfile}
+        {:ref :ewr.rel/parser-reads-models}
+        {:ref :ewr.rel/usb-writes-printer :direction :down}]}
+
+  ;;;
+  ;;; Dynamic — the CLI reset flow at runtime
+  ;;;
+  {:el :dynamic-view
+   :id :ewr/cli-flow-view
+   :title "EWR — CLI Reset Flow (Smart Protocol)"
+   :desc "Runtime sequence from launch to the SUCCESS message."
+   :ct [{:ref :ewr/user}
+        {:ref :ewr.app/cli}
+        {:ref :ewr.core/generator}
+        {:ref :ewr.core/parser}
+        {:ref :ewr.core/protocol}
+        {:ref :ewr.core/usb}
+        {:ref :ewr.ext/github-db}
+        {:ref :ewr.ext/epson-printer}
+
+        {:el :rel :id :ewr.flow/step-1 :index 1
+         :from :ewr/user :to :ewr.app/cli :name "run ewr, type model name"}
+        {:el :rel :id :ewr.flow/step-2 :index 2
+         :from :ewr.app/cli :to :ewr.core/generator :name "SyncDatabaseOTA()"}
+        {:el :rel :id :ewr.flow/step-3 :index 3
+         :from :ewr.core/generator :to :ewr.ext/github-db :name "GET database.json (HTTPS)"}
+        {:el :rel :id :ewr.flow/step-4 :index 4
+         :from :ewr.app/cli :to :ewr.core/generator :name "LoadDatabase()"}
+        {:el :rel :id :ewr.flow/step-5 :index 5
+         :from :ewr.app/cli :to :ewr.core/parser :name "ScanModelsFolder() [replay fallback]"}
+        {:el :rel :id :ewr.flow/step-6 :index 6
+         :from :ewr.app/cli :to :ewr.core/generator :name "GenerateSequence(model)"}
+        {:el :rel :id :ewr.flow/step-7 :index 7
+         :from :ewr.core/generator :to :ewr.core/protocol :name "BuildResetSequence()"}
+        {:el :rel :id :ewr.flow/step-8 :index 8
+         :from :ewr.app/cli :to :ewr.core/usb :name "AutoConnectEpsonPrinter()"}
+        {:el :rel :id :ewr.flow/step-9 :index 9
+         :from :ewr.core/usb :to :ewr.ext/epson-printer :name "detach driver, claim interface"}
+        {:el :rel :id :ewr.flow/step-10 :index 10
+         :from :ewr.app/cli :to :ewr.core/usb :name "ExecutePayloadSequence(seq)"}
+        {:el :rel :id :ewr.flow/step-11 :index 11
+         :from :ewr.core/usb :to :ewr.ext/epson-printer :name "bulk-write D4 packets"}
+        {:el :rel :id :ewr.flow/step-12 :index 12
+         :from :ewr.ext/epson-printer :to :ewr.core/usb :name ":42:OK; ACK"}
+        {:el :rel :id :ewr.flow/step-13 :index 13
+         :from :ewr.app/cli :to :ewr/user :name "SUCCESS — power-cycle the printer"}]}
+  ;
+  }
