@@ -4,6 +4,23 @@ The safety-critical byte logic lives in a pure, I/O-free core
 (`include/ewr/protocol.h`), so it is tested entirely on the host — **no printer,
 network, or USB required**. Three complementary techniques.
 
+## Toolchain (Debian/Ubuntu)
+
+The complete C/C++ compiler chain for building the project and running the
+LLVM-level mutation tests:
+
+```bash
+sudo apt-get install build-essential clang-19 clang-tools-19 lld-19 libstdc++-14-dev libc6-dev
+```
+
+Plus the project's build/runtime dependencies — `cmake pkgconf libusb-1.0-dev
+libcurl4-openssl-dev` — and `mull-19` (from the
+[Mull APT repo](https://github.com/mull-project/mull)) for the deeper mutation
+pass. On a machine with several GCC versions installed, `scripts/mull.sh`
+auto-selects the newest one that actually ships `libstdc++` headers (override
+with `MULL_GCC_INSTALL_DIR=`), so a headerless `gcc-14` stub won't break the
+Clang build with a `'cstdint' file not found`.
+
 ## Build & run
 
 ```bash
@@ -85,20 +102,24 @@ scripts/mull.sh          # or: CLANGXX=clang++-19 scripts/mull.sh
 It instruments only `src/protocol.cpp` (the pure byte builders + the ACK
 classifiers `IsWritePacket` / `IsWriteAcknowledged` / `IsWriteRejected`), uses
 `tests/property_test.cpp` as the oracle, and reads `mull.yml` (`cxx_all`
-mutators). Current score: **89%** — 56 mutants, 6 survivors, all understood:
+mutators). Current score: **97%** — 47 mutants, **1** survivor, an accepted
+**equivalent mutant**:
 
-- a big-endian `>>`/`<<` swap in `pushBe16` that only differs for packets
-  ≥ 256 bytes (which never occur — the high length byte is always `0x00`);
-- two `cxx_remove_void_call` mutants that drop a `push_back` — Mull cannot kill
-  these against a same-process oracle;
-- two `cxx_replace_scalar_call` mutants that swap a `.size()` for the literal
-  `42`, equivalent over the real input domain (write frames are always
-  ≥ 19 bytes, and the substring loop bound only over-runs into a read that the
-  oracle's inputs never distinguish);
-- one `cxx_assign_const` on `match = false` inside the substring search that Mull
-  reports as surviving but which the property suite provably **kills** (flipping
-  it to `match = true` makes the ACK-token assertions fail) — a Mull-encoding
-  false survivor, tracked under the "investigate Mull survivors" task.
+- `cxx_replace_scalar_call` turns the `p.size() >= 15` length guard in
+  `IsWritePacket` into `42 >= 15` (always true). It is unkillable by any
+  well-defined test: the two forms differ only for buffers shorter than 15
+  bytes, and observing that difference requires reading `p[6..14]` — out of
+  bounds for a sub-15-byte buffer, i.e. the exact undefined behavior the guard
+  exists to prevent. `mull.yml` documents it; `tests/property_test.cpp` pins the
+  guard's short-circuit behavior with a 14-byte case.
+
+Getting from the earlier 89% (6 survivors) to here closed the real oracle gaps:
+a ≥ 256-byte packet now exercises the big-endian high length byte (killing the
+`pushBe16` `>>`/`<<` swap), an ACK token placed past byte 42 kills a
+`.size()`→const scan-window mutant, and hoisting two `push_back` arguments into
+named locals plus rewriting the substring search with `std::equal` let Mull's
+`cxx_remove_void_call` / `cxx_assign_const` mutants become killable (the old
+multi-line/flag forms were Mull-encoding false survivors).
 
 ## The iron rule
 

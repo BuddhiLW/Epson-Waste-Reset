@@ -19,6 +19,7 @@ EWR bypasses the need to pay for sketchy third-party reset keys (like WIC Reset)
 ### Prerequisites (For Building from Source)
 * **Windows:** Visual Studio with MSVC C++ build tools.
 * **Linux (Arch/Debian):** `cmake`, `gcc`, `pkgconf`, `libusb-1.0-dev`, and `libcurl4-openssl-dev`.
+* **Debian/Ubuntu one-liner** (full compiler chain, incl. Clang/LLVM for mutation testing): see [Toolchain (Debian/Ubuntu)](docs/TESTING.md#toolchain-debianubuntu).
 
 ## Usage
 
