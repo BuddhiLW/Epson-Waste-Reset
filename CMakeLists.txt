@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(LIB_SOURCES src/parser.cpp src/generator.cpp src/protocol.cpp)
+set(LIB_SOURCES src/parser.cpp src/generator.cpp src/protocol.cpp src/executor.cpp)
 
 if(WIN32)
     list(APPEND LIB_SOURCES src/usb_windows.cpp)
@@ -14,6 +14,9 @@ else()
 endif()
 
 add_library(ewr_core STATIC ${LIB_SOURCES})
+
+find_package(Threads REQUIRED)
+target_link_libraries(ewr_core PUBLIC Threads::Threads)
 
 target_include_directories(ewr_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -53,3 +56,4 @@ endfunction()
 
 ewr_add_test(golden_test)
 ewr_add_test(property_test)
+ewr_add_test(executor_test)

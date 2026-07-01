@@ -72,6 +72,42 @@ namespace ewr::protocol {
         return seq;
     }
 
+    static bool containsSubseq(const D4Packet& hay, const unsigned char* needle, size_t n)
+    {
+        for (size_t i = 0; i + n <= hay.size(); ++i)
+        {
+            bool match = true;
+            for (size_t j = 0; j < n; ++j)
+                if (hay[i + j] != needle[j]) { match = false; break; }
+            if (match)
+                return true;
+        }
+        return false;
+    }
+
+    bool IsWritePacket(const D4Packet& p)
+    {
+        const uint8_t not_c   = static_cast<uint8_t>(~proto::WRITE_CMD & 0xFF);
+        const uint8_t shift_c = static_cast<uint8_t>(((proto::WRITE_CMD >> 1) & 0x7F) | ((proto::WRITE_CMD << 7) & 0x80));
+        return p.size() >= 15
+            && p[6] == proto::FRAME && p[7] == proto::FRAME
+            && p[12] == proto::WRITE_CMD
+            && p[13] == not_c
+            && p[14] == shift_c;
+    }
+
+    bool IsWriteAcknowledged(const D4Packet& response)
+    {
+        static const unsigned char OK[] = {0x3A, 0x34, 0x32, 0x3A, 0x4F, 0x4B, 0x3B}; // ":42:OK;"
+        return containsSubseq(response, OK, sizeof(OK));
+    }
+
+    bool IsWriteRejected(const D4Packet& response)
+    {
+        static const unsigned char NG[] = {0x3A, 0x34, 0x32, 0x3A, 0x4E, 0x47, 0x3B}; // ":42:NG;"
+        return containsSubseq(response, NG, sizeof(NG));
+    }
+
     PayloadSequence ParseWiresharkText(std::string_view content)
     {
         PayloadSequence all;
