@@ -1,4 +1,6 @@
 #include "ewr/generator.h"
+#include "ewr/protocol.h"
+#include "ewr/domain.h"
 #include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -98,86 +100,19 @@ namespace ewr {
         return models;
     }
 
+    // Thin delegators to the pure protocol core (ewr/protocol.h). The byte
+    // construction now lives in src/protocol.cpp so it can be tested without I/O.
     std::vector<unsigned char> UniversalGenerator::GenerateWritePacket(uint16_t rkey, uint16_t address, uint8_t value, const std::string& wkey) const
     {
-        uint8_t c = 0x42; // '|B' command
-        uint8_t not_c = ~c & 0xFF;
-        uint8_t shift_c = ((c >> 1) & 0x7F) | ((c << 7) & 0x80);
-
-        std::vector<unsigned char> inner;
-        inner.push_back(rkey & 0xFF);         // rkey Low
-        inner.push_back((rkey >> 8) & 0xFF);  // rkey High
-        inner.push_back(c);
-        inner.push_back(not_c);
-        inner.push_back(shift_c);
-        inner.push_back(address & 0xFF);      // addr Low
-        inner.push_back((address >> 8) & 0xFF); // addr High
-        inner.push_back(value);               // reset value (e.g., 0x00)
-        inner.insert(inner.end(), wkey.begin(), wkey.end());
-
-        std::vector<unsigned char> epson_cmd;
-        epson_cmd.push_back(0x7C); // '|'
-        epson_cmd.push_back(0x7C); // '|'
-        uint16_t len = inner.size();
-        epson_cmd.push_back(len & 0xFF);      // inner_len Low
-        epson_cmd.push_back((len >> 8) & 0xFF); // inner_len High
-        epson_cmd.insert(epson_cmd.end(), inner.begin(), inner.end());
-
-        // Wrap in IEEE 1284.4 D4 Header (EPSON-CTRL: 0x02, 0x02)
-        std::vector<unsigned char> d4;
-        d4.push_back(0x02); // psid
-        d4.push_back(0x02); // ssid
-        uint16_t d4_len = epson_cmd.size() + 6;
-        d4.push_back((d4_len >> 8) & 0xFF);
-        d4.push_back(d4_len & 0xFF);
-        d4.push_back(0x00); // credit: MUST be 0 here to prevent overflow
-        d4.push_back(0x00); // control
-        d4.insert(d4.end(), epson_cmd.begin(), epson_cmd.end());
-
-        return d4;
+        return protocol::BuildWritePacket(
+            static_cast<ResetKey>(rkey),
+            EepromWrite{static_cast<EepromAddress>(address), value},
+            wkey);
     }
 
     std::vector<std::vector<unsigned char>> UniversalGenerator::GenerateSequence(const DbPrinterModel& model) const
     {
-        std::vector<std::vector<unsigned char>> sequence;
-
-        // Enter IEEE 1284.4 Packet Mode (3 Null bytes RESTORED)
-        const unsigned char ejl_init[] = {
-            0x00, 0x00, 0x00, 0x1B, 0x01, '@', 'E', 'J', 'L', ' ', '1', '2', '8', '4', '.', '4', '\n',
-            '@', 'E', 'J', 'L', '\n',
-            '@', 'E', 'J', 'L', '\n'
-        };
-        sequence.push_back(std::vector<unsigned char>(std::begin(ejl_init), std::end(ejl_init)));
-
-        // D4 Init (Targeting PSID=0x00, SSID=0x00)
-        const unsigned char d4_init[] = {
-            0x00, 0x00, 0x00, 0x08, 0x01, 0x00, 0x00, 0x10
-        };
-        sequence.push_back(std::vector<unsigned char>(std::begin(d4_init), std::end(d4_init)));
-
-        // D4 OpenChannel (Targeting EPSON-CTRL 0x02, 0x02)
-        const unsigned char d4_open[] = {
-            0x00, 0x00, 0x00, 0x11, 0x01, 0x00, 0x01,
-            0x02, 0x02, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00
-        };
-        sequence.push_back(std::vector<unsigned char>(std::begin(d4_open), std::end(d4_open)));
-
-        // IEEE 1284.4 Protocol Maintenance Packets
-        const unsigned char d4_credit_grant[] = {
-            0x00, 0x00, 0x00, 0x0B, 0x01, 0x00, 0x03, 0x02, 0x02, 0x00, 0x01
-        };
-        const unsigned char d4_credit_req[] = {
-            0x00, 0x00, 0x00, 0x0D, 0x01, 0x00, 0x04, 0x02, 0x02, 0xFF, 0xFF, 0x00, 0x01
-        };
-
-        for (size_t i = 0; i < model.addresses.size(); ++i)
-        {
-            sequence.push_back(std::vector<unsigned char>(std::begin(d4_credit_grant), std::end(d4_credit_grant)));
-            sequence.push_back(std::vector<unsigned char>(std::begin(d4_credit_req), std::end(d4_credit_req)));
-            sequence.push_back(GenerateWritePacket(model.rkey, model.addresses[i], model.reset_values[i], model.wkey));
-        }
-
-        return sequence;
+        return protocol::BuildResetSequence(model);
     }
 
 } // namespace ewr
