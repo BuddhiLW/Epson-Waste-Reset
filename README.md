@@ -70,6 +70,9 @@ If your printer isn't in the database yet, you can still add support for it usin
 
 Video Guide: https://youtu.be/PQzxifFqMsA
 
+## Development & Testing
+The core packet logic is a pure, dependency-free layer (`include/ewr/protocol.h`) covered by golden-byte, property-based, and mutation tests that need no hardware. See [docs/TESTING.md](docs/TESTING.md) to build and run them, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the layering, and [docs/REFACTOR_ROADMAP.md](docs/REFACTOR_ROADMAP.md) for the ongoing refactor plan.
+
 ## Credits
 Special thanks to the [reinkpy](https://codeberg.org/atufi/reinkpy) project for their fantastic database. EWR uses an automated GitHub Actions pipeline to sync and convert their TOML database into our C++ backend, merging their massive printer support with our standalone C++ execution environment.
 
