@@ -2,11 +2,6 @@
 #include <string>
 #include <utility>
 
-// A minimal Result<T> / Error seam so the I/O boundaries (load, parse, build)
-// can report WHY they failed instead of returning an empty vector or a bare
-// bool. Proportionate to a single-user CLI — no exceptions-as-control-flow, no
-// third-party expected<> dependency.
-
 namespace ewr {
 
     enum class ErrorCode

@@ -39,8 +39,6 @@ namespace ewr {
         return availableModels;
     }
 
-    // Thin I/O wrapper: read the file, then delegate to the pure parser
-    // (ewr::protocol::ParseWiresharkText) so the byte logic is unit-testable.
     Result<PayloadSequence> ParseWiresharkDump(const std::string& filepath)
     {
         std::ifstream file(filepath);

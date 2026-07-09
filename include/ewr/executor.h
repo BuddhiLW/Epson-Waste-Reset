@@ -6,10 +6,6 @@
 #include <cstddef>
 #include <ostream>
 
-// APPLICATION stratum: the platform-independent send -> settle -> drain -> gate
-// loop. Success is declared only when every EEPROM-write packet is acknowledged
-// with ":42:OK;" (see protocol::IsWriteAcknowledged) — not on any inbound byte.
-
 namespace ewr {
 
     struct ExecutionResult

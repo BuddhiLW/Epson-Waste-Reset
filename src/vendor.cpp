@@ -10,8 +10,6 @@ namespace ewr {
 
     Ack EpsonD4Protocol::ClassifyReply(const D4Packet& reply) const
     {
-        // Rejection is checked first, matching the executor's original ordering:
-        // a frame carrying ":42:NG;" is a refusal, never an acknowledgement.
         if (protocol::IsWriteRejected(reply))
             return Ack::Rejected;
         if (protocol::IsWriteAcknowledged(reply))

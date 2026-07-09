@@ -19,10 +19,6 @@ namespace ewr {
 
     bool UniversalGenerator::SyncDatabaseOTA()
     {
-        // Download to a sibling temp file, and only replace the working file once
-        // the download succeeded AND the payload parses as a JSON object. So a
-        // failed, partial, or error-page response (e.g. an HTTP 404 body — which
-        // URLDownloadToFileA reports as S_OK) never overwrites database.json.
         const char* url  = "https://raw.githubusercontent.com/RxNaison/Epson-Waste-Reset/main/database.json";
         const char* dest = "database.json";
         const char* tmp  = "database.json.tmp";
@@ -60,9 +56,6 @@ namespace ewr {
         }
 #endif
 
-        // Content gate (both platforms): a truncated transfer or an HTTP error
-        // page is not a valid database. URLDownloadToFileA in particular returns
-        // S_OK for a 404 and writes the error body, so status alone is not enough.
         {
             std::ifstream check(tmp);
             bool valid = false;
@@ -86,7 +79,6 @@ namespace ewr {
             }
         }
 
-        // Atomically replace the target only after the content check passes.
 #ifdef _WIN32
         if (!MoveFileExA(tmp, dest, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         {
@@ -164,8 +156,6 @@ namespace ewr {
         return models;
     }
 
-    // Thin delegators to the pure protocol core (ewr/protocol.h). The byte
-    // construction now lives in src/protocol.cpp so it can be tested without I/O.
     std::vector<unsigned char> UniversalGenerator::GenerateWritePacket(uint16_t rkey, uint16_t address, uint8_t value, const std::string& wkey) const
     {
         return protocol::BuildWritePacket(

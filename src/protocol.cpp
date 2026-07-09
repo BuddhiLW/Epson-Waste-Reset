@@ -1,6 +1,6 @@
 #include "ewr/protocol.h"
 #include "ewr/proto.h"
-#include "ewr/generator.h" // full definition of DbPrinterModel
+#include "ewr/generator.h"
 
 #include <algorithm>
 #include <regex>
@@ -11,14 +11,14 @@ namespace ewr::protocol {
 
     static void pushLe16(D4Packet& v, uint16_t x)
     {
-        v.push_back(x & 0xFF);
-        v.push_back((x >> 8) & 0xFF);
+        v.push_back(static_cast<unsigned char>(x & 0xFF));
+        v.push_back(static_cast<unsigned char>((x >> 8) & 0xFF));
     }
 
     static void pushBe16(D4Packet& v, uint16_t x)
     {
-        v.push_back((x >> 8) & 0xFF);
-        v.push_back(x & 0xFF);
+        v.push_back(static_cast<unsigned char>((x >> 8) & 0xFF));
+        v.push_back(static_cast<unsigned char>(x & 0xFF));
     }
 
     D4Packet BuildWritePacket(ResetKey rkey, EepromWrite cell, std::string_view wkey)
@@ -61,7 +61,6 @@ namespace ewr::protocol {
 
         for (size_t i = 0; i < model.addresses.size(); ++i)
         {
-            // Local OOB guard: never index past a short reset[] (padding also happens in the loader).
             const uint8_t value = (i < model.reset_values.size()) ? model.reset_values[i] : 0x00;
 
             seq.emplace_back(proto::D4_CREDIT_GRANT.begin(), proto::D4_CREDIT_GRANT.end());
@@ -78,10 +77,8 @@ namespace ewr::protocol {
 
     static bool containsSubseq(const D4Packet& hay, const unsigned char* needle, size_t n)
     {
-        // i + n <= hay.size() keeps [i, i+n) in bounds, so std::equal never reads
-        // past the buffer even for the last candidate offset.
         for (size_t i = 0; i + n <= hay.size(); ++i)
-            if (std::equal(needle, needle + n, hay.begin() + i))
+            if (std::equal(needle, needle + n, hay.begin() + static_cast<std::ptrdiff_t>(i)))
                 return true;
         return false;
     }

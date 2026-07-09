@@ -205,7 +205,7 @@ namespace ewr {
         {
             GUID guid;
             const char* name;
-            int classPriority; // Lower number = higher priority for printer maintenance
+            int classPriority;
         };
 
         const GuidEntry SCAN_GUIDS[] = {
@@ -306,13 +306,6 @@ namespace ewr {
 
         for (const auto& c : candidates)
             LogToTrace("     [" + c.className + " | mi_" + (c.interfaceIndex >= 0 ? std::to_string(c.interfaceIndex) : "N/A") + "] " + c.path);
-
-        // CLASS-AWARE INTERFACE SELECTION
-        //   1. USBPRINT class + mi_00  (printer engine on primary interface)
-        //   2. USBPRINT class + any mi (printer engine on secondary interface)
-        //   3. USBPRINT class + non-composite (single-function printer)
-        //   4. Non-USBPRINT class + mi_00 (last resort: might be scanner)
-        //   5. First detected path (absolute fallback)
 
         std::string selectedPath;
         std::string selectionReason;
