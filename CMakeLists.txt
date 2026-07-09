@@ -57,3 +57,15 @@ endfunction()
 ewr_add_test(golden_test)
 ewr_add_test(property_test)
 ewr_add_test(executor_test)
+
+# byte_parity_check diffs the refactored core against the upstream reference
+# algorithm over the whole database.json; pass the DB path from the source tree.
+add_executable(byte_parity_check tests/byte_parity_check.cpp)
+target_link_libraries(byte_parity_check PRIVATE ewr_core)
+if(WIN32)
+    target_link_libraries(byte_parity_check PRIVATE urlmon)
+else()
+    target_link_libraries(byte_parity_check PRIVATE ${LIBUSB_LIBRARIES} ${LIBCURL_LIBRARIES})
+endif()
+add_test(NAME byte_parity_check
+         COMMAND byte_parity_check ${CMAKE_CURRENT_SOURCE_DIR}/database.json)

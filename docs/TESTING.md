@@ -121,6 +121,43 @@ named locals plus rewriting the substring search with `std::equal` let Mull's
 `cxx_remove_void_call` / `cxx_assign_const` mutants become killable (the old
 multi-line/flag forms were Mull-encoding false survivors).
 
+## 5. Byte-parity vs. the upstream reference — `tests/byte_parity_check.cpp`
+
+The one question that matters for hardware safety: **does the refactor change any
+byte that reaches an EEPROM?** This harness answers it directly. It embeds the
+*verbatim* upstream `GenerateSequence` / `GenerateWritePacket` algorithm
+(namespace `legacy`) and diffs its output against
+`ewr::protocol::BuildResetSequence` for **every** model in `database.json`.
+
+```bash
+./build/byte_parity_check database.json    # writes verdict to stdout
+```
+
+Latest run: **1337** models with addresses · **39 978** packets · **669 352
+bytes** compared · **0** mismatches. The full log is committed at
+`tests/BYTE_PARITY.txt`. Because the upstream builder is the code that has been
+exercised on real printers, byte-for-byte identity means upstream's on-hardware
+validation transfers to the refactored output unchanged — without needing a
+printer here. (OTA robustness and the Canon path are intentionally *not* in
+scope of this equivalence: the Canon reset has no upstream on-hardware oracle and
+is gated as `CommitPending` / unverified by design.)
+
+### Verify it yourself, zero-trust — `tests/verify_against_upstream.sh`
+
+`byte_parity_check` embeds a copy of the upstream algorithm, so a skeptic still
+has to trust that copy. This script removes that assumption: it **fetches
+upstream's own `src/generator.cpp` from `github.com/RxNaison/Epson-Waste-Reset`**,
+compiles it into an oracle binary, compiles a dumper from *this* tree, runs both
+over the same `database.json`, and `diff`s the emitted bytes. The only thing you
+trust is upstream's own source.
+
+```bash
+tests/verify_against_upstream.sh            # ref=main, ./database.json
+tests/verify_against_upstream.sh main       # or pin any upstream ref
+# prints the upstream generator.cpp sha256, then:
+# RESULT: IDENTICAL — every emitted byte matches upstream over 1337 models.
+```
+
 ## The iron rule
 
 Never rename a protocol literal or unify a byte-writer before the golden test
